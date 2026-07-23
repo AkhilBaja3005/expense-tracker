@@ -46,6 +46,25 @@ export function saveSavingsGoals(goals, userId) {
   }
 }
 
+const INCOME_STORAGE_KEY = 'expenser_income';
+
+export function getIncome(userId) {
+  try {
+    const data = localStorage.getItem(getUserKey(INCOME_STORAGE_KEY, userId));
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveIncome(income, userId) {
+  try {
+    localStorage.setItem(getUserKey(INCOME_STORAGE_KEY, userId), JSON.stringify(income));
+  } catch (e) {
+    console.error('Failed to save income locally', e);
+  }
+}
+
 export function getBudget(userId) {
   try {
     const budget = localStorage.getItem(getUserKey(BUDGET_STORAGE_KEY, userId));
@@ -325,6 +344,29 @@ export async function syncFromCloud(userId, onSyncDone) {
       }
     } catch (goalsErr) {
       console.warn("Savings goals sync warning:", goalsErr);
+    }
+
+    // 4. Sync Income
+    try {
+      const { data: dbIncome, error: incError } = await supabase
+        .from('income')
+        .select('*')
+        .eq('user_id', userId)
+        .order('date', { ascending: false });
+
+      if (!incError && dbIncome) {
+        const formattedIncome = dbIncome.map(item => ({
+          id: item.id,
+          source: item.source,
+          amount: parseFloat(item.amount),
+          date: item.date,
+          notes: item.notes,
+          createdAt: item.created_at
+        }));
+        saveIncome(formattedIncome, userId);
+      }
+    } catch (incErr) {
+      console.warn("Income sync warning:", incErr);
     }
 
     if (onSyncDone) onSyncDone();

@@ -16,7 +16,9 @@ import {
   deleteFromSyncQueue,
   saveExpenses,
   getSavingsGoals,
-  saveSavingsGoals
+  saveSavingsGoals,
+  getIncome,
+  saveIncome
 } from './utils/storage';
 import { CATEGORIES } from './utils/categorizer';
 import ExpenseForm from './components/ExpenseForm';
@@ -81,6 +83,7 @@ import BudgetModal from './components/BudgetModal';
 import OfflineQueueModal from './components/OfflineQueueModal';
 import ExpenseListItem from './components/ExpenseListItem';
 import SavingsGoalsCard from './components/SavingsGoalsCard';
+import IncomeCard from './components/IncomeCard';
 
 const CURRENCIES = {
   USD: { symbol: '$', name: 'USD ($)' },
@@ -146,6 +149,7 @@ export default function App() {
 
   // Savings Goals states
   const [goals, setGoals] = useState([]);
+  const [incomeList, setIncomeList] = useState([]);
   
   // Sorters, date filters, and reminders state
   const [searchQuery, setSearchQuery] = useState('');
@@ -282,6 +286,7 @@ export default function App() {
       setBudget(getBudget(userId));
       setCategoryBudgets(getCategoryBudgets(userId));
       setGoals(getSavingsGoals(userId));
+      setIncomeList(getIncome(userId));
       const savedCurrency = localStorage.getItem(`expenser_currency_${userId}`);
       if (savedCurrency && CURRENCIES[savedCurrency]) {
         setCurrency(savedCurrency);
@@ -318,6 +323,7 @@ export default function App() {
     setBudget(getBudget(userId));
     setCategoryBudgets(getCategoryBudgets(userId));
     setGoals(getSavingsGoals(userId));
+    setIncomeList(getIncome(userId));
     setPendingSyncs(getPendingSyncCount());
 
     const savedCurrency = localStorage.getItem(`expenser_currency_${userId}`);
@@ -1161,6 +1167,99 @@ export default function App() {
       }
     }
   }, [goals, userId]);
+  const handleAddIncome = React.useCallback(async (newIncome) => {
+    const incomeWithId = {
+      ...newIncome,
+      id: 'inc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+      createdAt: new Date().toISOString()
+    };
+    const updatedIncome = [incomeWithId, ...incomeList];
+    setIncomeList(updatedIncome);
+    saveIncome(updatedIncome, user?.id);
+
+    if (user?.id) {
+      try {
+        await supabase.from('income').insert({
+          id: incomeWithId.id,
+          user_id: user.id,
+          source: incomeWithId.source,
+          amount: incomeWithId.amount,
+          date: incomeWithId.date,
+          notes: incomeWithId.notes
+        });
+      } catch (err) {
+        console.error("Failed to upload income:", err);
+      }
+    }
+  }, [incomeList, user]);
+
+  const handleDeleteIncome = React.useCallback(async (id) => {
+    if (!window.confirm("Delete this income record?")) return;
+    const updatedIncome = incomeList.filter(i => i.id !== id);
+    setIncomeList(updatedIncome);
+    saveIncome(updatedIncome, user?.id);
+
+    if (user?.id) {
+      try {
+        await supabase.from('income').delete().eq('id', id);
+      } catch (err) {
+        console.error("Failed to delete income:", err);
+      }
+    }
+  }, [incomeList, user]);
+
+  const drawSvgGraph = () => {
+    if (budget === 0) return null;
+    const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+    const currentDay = new Date().getDate();
+    
+    const currentMonthStr = new Date().toISOString().slice(0,7);
+    const monthlyExpenses = expenses.filter(e => e.date.startsWith(currentMonthStr));
+    
+    let cumulative = 0;
+    const pacingData = Array.from({ length: daysInMonth }, (_, i) => {
+      const dayStr = `${currentMonthStr}-${String(i + 1).padStart(2, '0')}`;
+      const daySpent = monthlyExpenses
+        .filter(e => e.date === dayStr)
+        .reduce((sum, e) => sum + e.amount, 0);
+      
+      if (i < currentDay) {
+        cumulative += daySpent;
+        return cumulative;
+      }
+      return null;
+    });
+
+    const maxPacing = Math.max(budget, cumulative) || 1;
+    const height = 60;
+    const width = 100;
+
+    const points = pacingData
+      .map((val, i) => {
+        if (val === null) return null;
+        const x = (i / (daysInMonth - 1)) * width;
+        const y = height - (val / maxPacing) * height;
+        return `${x},${y}`;
+      })
+      .filter(Boolean)
+      .join(' ');
+
+    const idealPoints = `0,${height} ${width},0`;
+
+    return (
+      <div style={{ marginTop: '12px' }}>
+        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Cumulative Pacing</span>
+        <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: '60px', overflow: 'visible', marginTop: '4px' }}>
+          <polyline points={idealPoints} fill="none" stroke="rgba(255, 255, 255, 0.2)" strokeWidth="1" strokeDasharray="4,4" />
+          <polyline points={points} fill="none" stroke="var(--accent-primary)" strokeWidth="2" />
+          {points && (
+            <polygon points={`0,${height} ${points} ${((currentDay-1) / (daysInMonth - 1)) * width},${height}`} fill="rgba(34, 211, 238, 0.1)" />
+          )}
+        </svg>
+      </div>
+    );
+  };
+
   const handleSwipeOpen = React.useCallback((id) => {
     setSwipedItemId(id);
   }, []);
@@ -1449,9 +1548,11 @@ export default function App() {
         <div className="desktop-grid">
           
           {/* LEFT SIDEBAR (Budget, Analytics & Subscription Lists) */}
-          <div className={`left-column ${activeTab === 'dashboard' ? 'show-mobile' : 'hide-mobile'}`} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* Overall Budget Status */}
-            <div className="glass-card budget-summary">
+          <div className={`left-column ${activeTab === 'dashboard' || activeTab === 'planning' || activeTab === 'analytics' ? 'show-mobile' : 'hide-mobile'}`} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* OVERVIEW SECTION */}
+            <div className={activeTab === 'dashboard' ? 'flex-column-gap' : 'hide-mobile'} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Overall Budget Status */}
+              <div className="glass-card budget-summary">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Overall Limit</span>
                 <button 
@@ -1530,6 +1631,8 @@ export default function App() {
                   {currSymbol}{safeDailyLimit.toFixed(2)} / day
                 </span>
               </div>
+
+              {drawSvgGraph()}
             </div>
 
             {/* Smart Subscriptions / Recurring Bills Card */}
@@ -1630,17 +1733,80 @@ export default function App() {
                 </p>
               )}
             </div>
+          </div>
 
-            {/* Savings Goals Target Tracker */}
-            <SavingsGoalsCard
-              goals={goals}
-              currencySymbol={currSymbol}
-              onAddGoal={handleAddSavingsGoal}
-              onAddContribution={handleAddGoalContribution}
-              onDeleteGoal={handleDeleteSavingsGoal}
-            />
+            {/* PLANNING SECTION */}
+            <div className={activeTab === 'planning' ? 'flex-column-gap' : 'hide-mobile'} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Budget Surplus Rollover Widget */}
+              {budget > 0 && totalSpent < budget && (
+                <div className="glass-card" style={{ background: 'rgba(52, 211, 153, 0.08)', border: '1px solid rgba(52, 211, 153, 0.25)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--success)' }}>🎉 Budget Surplus Detected!</span>
+                    <span style={{ fontSize: '12px', fontWeight: '600' }}>{currSymbol}{(budget - totalSpent).toFixed(0)} saved</span>
+                  </div>
+                  <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.4' }}>
+                    You spent less than your monthly limit! Rollover this leftover surplus directly into your active Savings Goals.
+                  </p>
+                  {goals.length > 0 ? (
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                      <select 
+                        id="surplus-target-goal"
+                        className="input-field" 
+                        style={{ padding: '4px 8px', fontSize: '11px', flex: 1 }}
+                      >
+                        {goals.map(g => (
+                          <option key={g.id} value={g.id}>{g.name} ({currSymbol}{g.currentAmount}/{currSymbol}{g.targetAmount})</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => {
+                          const selectEl = document.getElementById('surplus-target-goal');
+                          if (selectEl && selectEl.value) {
+                            handleAddGoalContribution(selectEl.value, budget - totalSpent);
+                            alert("Successfully allocated surplus to your savings goal!");
+                          }
+                        }}
+                        style={{
+                          background: 'var(--success)',
+                          border: 'none',
+                          color: 'white',
+                          padding: '4px 12px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Allocate All
+                      </button>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Create a savings goal below to allocate this surplus.</span>
+                  )}
+                </div>
+              )}
 
-            {/* Distribution chart & AI Savings Advisor */}
+              {/* Monthly Income Tracker Card */}
+              <IncomeCard
+                incomeList={incomeList}
+                currencySymbol={currSymbol}
+                onAddIncome={handleAddIncome}
+                onDeleteIncome={handleDeleteIncome}
+              />
+
+              {/* Savings Goals Target Tracker */}
+              <SavingsGoalsCard
+                goals={goals}
+                currencySymbol={currSymbol}
+                onAddGoal={handleAddSavingsGoal}
+                onAddContribution={handleAddGoalContribution}
+                onDeleteGoal={handleDeleteSavingsGoal}
+              />
+            </div>
+
+            {/* ANALYTICS SECTION */}
+            <div className={activeTab === 'analytics' ? 'flex-column-gap' : 'hide-mobile'} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Distribution chart & AI Savings Advisor */}
             <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-secondary)' }}>
@@ -1754,8 +1920,10 @@ export default function App() {
                 )}
               </div>
             </div>
+          </div>
 
-            {/* Backup Action card */}
+          {/* Backup Action card */}
+          <div className={activeTab === 'dashboard' ? 'flex-column-gap' : 'hide-mobile'} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
                 <button 
@@ -1819,6 +1987,7 @@ export default function App() {
               </button>
             </div>
           </div>
+        </div>
 
           {/* RIGHT SIDEBAR */}
           <div className={`right-column ${activeTab === 'expenses' ? 'show-mobile' : 'hide-mobile'}`} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -2025,7 +2194,7 @@ export default function App() {
       </main>
 
       {/* Bottom Navigation Bar (Mobile Only) */}
-      <div className="mobile-nav-bar">
+      <div className="mobile-nav-bar" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', width: '100%', padding: '4px 0' }}>
         <button 
           onClick={() => setActiveTab('dashboard')} 
           className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
@@ -2038,7 +2207,21 @@ export default function App() {
           className={`nav-item ${activeTab === 'expenses' ? 'active' : ''}`}
         >
           <span className="icon">💸</span>
-          <span>Transactions</span>
+          <span>Expenses</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('planning')} 
+          className={`nav-item ${activeTab === 'planning' ? 'active' : ''}`}
+        >
+          <span className="icon">🎯</span>
+          <span>Planning</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('analytics')} 
+          className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}
+        >
+          <span className="icon">💡</span>
+          <span>Analytics</span>
         </button>
       </div>
 

@@ -713,9 +713,8 @@ h1, h2, h3, h4, .budget-amount, .section-title span {
   animation: pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* Mobile Columns Toggle */
 @media (max-width: 767px) {
-  .left-column.hide-mobile, .right-column.hide-mobile {
+  .left-column.hide-mobile, .right-column.hide-mobile, .hide-mobile {
     display: none !important;
   }
 }
@@ -784,7 +783,7 @@ h1, h2, h3, h4, .budget-amount, .section-title span {
     font-family: inherit;
     font-weight: 500;
     cursor: pointer;
-    width: 50%;
+    width: 25%;
     height: 100%;
     transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   }
