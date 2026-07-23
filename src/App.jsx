@@ -425,6 +425,25 @@ export default function App() {
             {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
           </button>
 
+          {/* Manual Cloud Sync Button */}
+          <button
+            onClick={() => triggerCloudSync(user.id)}
+            disabled={isSyncing}
+            style={{
+              background: 'var(--glass-bg)',
+              border: '1px solid var(--glass-border)',
+              color: 'var(--text-primary)',
+              padding: '6px 10px',
+              borderRadius: '20px',
+              cursor: 'pointer',
+              fontSize: '11px',
+              fontWeight: '600',
+              opacity: isSyncing ? 0.6 : 1
+            }}
+          >
+            {isSyncing ? '🔄 Syncing...' : '🔄 Sync'}
+          </button>
+
           <select 
             value={currency} 
             onChange={handleCurrencyChange}
