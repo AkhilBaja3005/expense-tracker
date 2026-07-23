@@ -14,6 +14,8 @@ function BudgetModal({
 }) {
   const [budget, setBudget] = useState(currentBudget);
   const [catBudgets, setCatBudgets] = useState({ ...categoryBudgets });
+  const [themeAccent, setThemeAccent] = useState(() => localStorage.getItem('expenser_theme_accent') || 'cyan');
+  const [timezone, setTimezone] = useState(() => localStorage.getItem('expenser_timezone') || 'UTC');
 
   const [customRules, setCustomRules] = useState(() => {
     try {
@@ -46,6 +48,26 @@ function BudgetModal({
         cleanedCatBudgets[key] = val;
       }
     });
+
+    localStorage.setItem('expenser_theme_accent', themeAccent);
+    localStorage.setItem('expenser_timezone', timezone);
+
+    // Apply CSS overrides
+    let primary = '6, 182, 212';
+    let glow = 'rgba(6, 182, 212, 0.15)';
+    if (themeAccent === 'rose') {
+      primary = '244, 63, 94';
+      glow = 'rgba(244, 63, 94, 0.15)';
+    } else if (themeAccent === 'emerald') {
+      primary = '16, 185, 129';
+      glow = 'rgba(16, 185, 129, 0.15)';
+    } else if (themeAccent === 'amber') {
+      primary = '245, 158, 11';
+      glow = 'rgba(245, 158, 11, 0.15)';
+    }
+    document.documentElement.style.setProperty('--accent-primary', `rgb(${primary})`);
+    document.documentElement.style.setProperty('--accent-glow', glow);
+
     onSave(parseFloat(budget) || 0, cleanedCatBudgets);
   };
 
@@ -152,6 +174,57 @@ function BudgetModal({
               </label>
             </div>
           )}
+          {/* Color Accent Theme selector */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid var(--glass-border)', paddingTop: '10px' }}>
+            <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>🎨 Neon Accent Theme</span>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '4px', flexWrap: 'wrap' }}>
+              {[
+                { id: 'cyan', color: '#06b6d4', name: 'Cyan' },
+                { id: 'rose', color: '#f43f5e', name: 'Rose' },
+                { id: 'emerald', color: '#10b981', name: 'Emerald' },
+                { id: 'amber', color: '#f59e0b', name: 'Amber' }
+              ].map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setThemeAccent(item.id)}
+                  style={{
+                    background: themeAccent === item.id ? 'var(--accent-glow)' : 'var(--bg-tertiary)',
+                    border: themeAccent === item.id ? '2px solid var(--accent-primary)' : '1px solid var(--glass-border)',
+                    borderRadius: '8px',
+                    padding: '6px 12px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '11px',
+                    color: 'var(--text-primary)',
+                    fontWeight: '600'
+                  }}
+                >
+                  <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: item.color, display: 'inline-block' }} />
+                  {item.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Timezone selector */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid var(--glass-border)', paddingTop: '10px' }}>
+            <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>🌍 App Timezone</span>
+            <select
+              className="input-field"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              style={{ padding: '8px 12px', fontSize: '12px', marginTop: '4px' }}
+            >
+              <option value="UTC">UTC (Coordinated Universal Time)</option>
+              <option value="GMT">GMT (Greenwich Mean Time)</option>
+              <option value="IST">IST (Indian Standard Time)</option>
+              <option value="EST">EST (Eastern Standard Time)</option>
+              <option value="PST">PST (Pacific Standard Time)</option>
+            </select>
+          </div>
 
           {/* System Force Sync Reset */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderTop: '1px solid var(--glass-border)', paddingTop: '10px' }}>

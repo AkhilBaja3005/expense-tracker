@@ -17,11 +17,33 @@ function ExpenseForm({
   const [notes, setNotes] = useState('');
   const [isSubscription, setIsSubscription] = useState(false);
   const [billingDay, setBillingDay] = useState(1);
+  const [subscriptionInterval, setSubscriptionInterval] = useState('monthly');
   const [suggestedCat, setSuggestedCat] = useState('Others');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const debounceTimer = useRef(null);
   const abortControllerRef = useRef(null);
+
+  // Get suggestions for notes from category history
+  const noteSuggestions = React.useMemo(() => {
+    if (!category) return [];
+    try {
+      const userCached = localStorage.getItem('expenser_user');
+      const userId = userCached ? JSON.parse(userCached)?.id : null;
+      const key = userId ? `expenser_expenses_${userId}` : 'expenser_expenses';
+      const listData = localStorage.getItem(key);
+      if (listData) {
+        const list = JSON.parse(listData) || [];
+        const matchingNotes = list
+          .filter(e => e.category === category && e.notes && e.notes.trim().length > 0)
+          .map(e => e.notes.trim());
+        return [...new Set(matchingNotes)].slice(0, 4);
+      }
+    } catch (e) {
+      return [];
+    }
+    return [];
+  }, [category]);
 
   // Load editing values
   useEffect(() => {
@@ -33,6 +55,7 @@ function ExpenseForm({
       setNotes(expense.notes || '');
       setIsSubscription(!!expense.isSubscription);
       setBillingDay(expense.billingDay || 1);
+      setSubscriptionInterval(expense.subscriptionInterval || 'monthly');
       setSuggestedCat(expense.category || 'Others');
     }
   }, [expense]);
@@ -160,7 +183,8 @@ function ExpenseForm({
       date,
       notes,
       isSubscription,
-      billingDay: isSubscription ? parseInt(billingDay) || 1 : null
+      billingDay: isSubscription ? parseInt(billingDay) || 1 : null,
+      subscriptionInterval: isSubscription ? subscriptionInterval : 'monthly'
     });
   };
 
@@ -294,21 +318,35 @@ function ExpenseForm({
 
           {/* Billing Day Selector */}
           {isSubscription && (
-            <div className="form-group">
-              <label>Billing Day of Month (1 - 31)</label>
-              <input
-                type="number"
-                min="1"
-                max="31"
-                className="input-field"
-                value={billingDay}
-                onChange={(e) => {
-                  const val = Math.max(1, Math.min(31, parseInt(e.target.value) || 1));
-                  setBillingDay(val);
-                }}
-                required
-              />
-            </div>
+            <>
+              <div className="form-group">
+                <label>Billing Day of Month (1 - 31)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="31"
+                  className="input-field"
+                  value={billingDay}
+                  onChange={(e) => {
+                    const val = Math.max(1, Math.min(31, parseInt(e.target.value) || 1));
+                    setBillingDay(val);
+                  }}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Billing Cycle / Interval</label>
+                <select
+                  className="input-field"
+                  value={subscriptionInterval}
+                  onChange={(e) => setSubscriptionInterval(e.target.value)}
+                >
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+            </>
           )}
 
           <div className="form-group">
@@ -320,6 +358,29 @@ function ExpenseForm({
               onChange={(e) => setNotes(e.target.value)}
               style={{ minHeight: '60px', resize: 'vertical' }}
             />
+            {noteSuggestions.length > 0 && (
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+                {noteSuggestions.map((sug, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setNotes(sug)}
+                    style={{
+                      background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid var(--glass-border)',
+                      borderRadius: '12px',
+                      padding: '3px 8px',
+                      fontSize: '10px',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    💡 {sug}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {expense && (

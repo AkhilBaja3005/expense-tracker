@@ -319,6 +319,24 @@ export default function App() {
   // Load user-specific data from local cache initially
   useEffect(() => {
     const userId = user?.id || null;
+    
+    // Apply selected theme variables
+    const themeAccent = localStorage.getItem('expenser_theme_accent') || 'cyan';
+    let primary = '6, 182, 212';
+    let glow = 'rgba(6, 182, 212, 0.15)';
+    if (themeAccent === 'rose') {
+      primary = '244, 63, 94';
+      glow = 'rgba(244, 63, 94, 0.15)';
+    } else if (themeAccent === 'emerald') {
+      primary = '16, 185, 129';
+      glow = 'rgba(16, 185, 129, 0.15)';
+    } else if (themeAccent === 'amber') {
+      primary = '245, 158, 11';
+      glow = 'rgba(245, 158, 11, 0.15)';
+    }
+    document.documentElement.style.setProperty('--accent-primary', `rgb(${primary})`);
+    document.documentElement.style.setProperty('--accent-glow', glow);
+
     setExpenses(getExpenses(userId));
     setBudget(getBudget(userId));
     setCategoryBudgets(getCategoryBudgets(userId));
