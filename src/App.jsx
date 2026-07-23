@@ -543,6 +543,7 @@ export default function App() {
           <img 
             src={user.picture} 
             alt="profile" 
+            referrerPolicy="no-referrer"
             style={{ width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer' }} 
             onClick={() => {
               if (window.confirm("Do you want to sign out?")) {
