@@ -297,6 +297,26 @@ export default function App() {
   const totalSpent = expenses.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
   const budgetProgress = Math.min((totalSpent / budget) * 100, 100);
 
+  // Period Overviews Calculations
+  const todayStr = new Date().toISOString().split('T')[0];
+  const spentToday = expenses
+    .filter(e => e.date === todayStr)
+    .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+
+  const oneWeekAgo = new Date();
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  oneWeekAgo.setHours(0,0,0,0);
+  const spentThisWeek = expenses
+    .filter(e => new Date(e.date) >= oneWeekAgo)
+    .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+
+  const currentMonthStart = new Date();
+  currentMonthStart.setDate(1);
+  currentMonthStart.setHours(0,0,0,0);
+  const spentThisMonth = expenses
+    .filter(e => new Date(e.date) >= currentMonthStart)
+    .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+
   // Safe Daily Limit Calculation
   const getSafeDailyLimit = () => {
     const today = new Date();
@@ -697,6 +717,22 @@ export default function App() {
                 <div className="stat-item" style={{ alignItems: 'flex-end' }}>
                   <span className="stat-label">Transactions</span>
                   <span className="stat-val">{expenses.length}</span>
+                </div>
+              </div>
+
+              {/* Quick Period Overviews (Daily, Weekly, Monthly) */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', padding: '12px 0', borderTop: '1px solid var(--glass-border)', borderBottom: '1px solid var(--glass-border)', margin: '4px 0' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.5px' }}>Today</span>
+                  <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>{currSymbol}{spentToday.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.5px' }}>This Week</span>
+                  <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>{currSymbol}{spentThisWeek.toFixed(0)}</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'flex-end' }}>
+                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.5px' }}>This Month</span>
+                  <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>{currSymbol}{spentThisMonth.toFixed(0)}</span>
                 </div>
               </div>
 
