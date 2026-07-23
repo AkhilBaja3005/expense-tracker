@@ -176,28 +176,16 @@ export default function App() {
     }
   };
 
-  // Setup Google Login & PWA
+  // Setup Google Login & Clean up Service Workers (Unregister to fix cached 404s)
   useEffect(() => {
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').then((reg) => {
-          console.log('SW registered:', reg);
-
-          // Force auto-reload when a new service worker update is found and installed
-          reg.addEventListener('updatefound', () => {
-            const newWorker = reg.installing;
-            if (newWorker) {
-              newWorker.addEventListener('statechange', () => {
-                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  console.log('New update available. Force reloading...');
-                  window.location.reload();
-                }
-              });
-            }
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        for (let registration of registrations) {
+          registration.unregister().then(() => {
+            console.log('SW unregistered successfully');
+            window.location.reload();
           });
-        }).catch((err) => {
-          console.error('SW registration failed:', err);
-        });
+        }
       });
     }
 
