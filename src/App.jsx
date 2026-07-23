@@ -247,16 +247,29 @@ export default function App() {
   const subscriptions = expenses.filter(e => !!e.isSubscription);
   const totalSubscriptionCost = subscriptions.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
 
-  // Fetch AI Financial Insights from Gemini
+  // Fetch AI Financial Insights from Gemini with smart offline fallback
   const fetchAiInsights = async () => {
     setIsAiInsightsLoading(true);
     setAiInsights('');
+    
+    // Calculate category totals for prompts/fallbacks
+    const categoryTotals = {};
+    expenses.forEach(e => {
+      categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount;
+    });
+
+    // Find highest spending category
+    let highestCat = 'N/A';
+    let highestAmt = 0;
+    Object.entries(categoryTotals).forEach(([cat, amt]) => {
+      if (amt > highestAmt) {
+        highestAmt = amt;
+        highestCat = CATEGORIES[cat]?.name || cat;
+      }
+    });
+
     try {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 'AQ.Ab8RN6Kzvrqkj0dt7I38FY9ouxPrG9RLkZ2uUwq8TfS-G8yLhA';
-      const categoryTotals = {};
-      expenses.forEach(e => {
-        categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount;
-      });
 
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
@@ -275,13 +288,27 @@ export default function App() {
         })
       });
 
-      if (!response.ok) throw new Error('Insights failed');
+      if (!response.ok) throw new Error('Insights failed or rate-limited');
       const data = await response.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      setAiInsights(text || 'Could not fetch insights. Try again.');
+      if (!text) throw new Error('Empty response');
+      setAiInsights(text.trim());
     } catch (e) {
-      console.error(e);
-      setAiInsights('Failed to load insights. Please verify your connection.');
+      console.warn('Gemini API quota exceeded or offline, generating local mathematical insights fallback.', e);
+      
+      // Smart Fallback insights based on actual user data
+      const limitStatus = budget - totalSpent;
+      const fallbackTips = [
+        `• Your highest spending category is ${highestCat} at ${currSymbol}${highestAmt.toFixed(2)}. Consider cutting down on non-essential items here.`,
+        totalSubscriptionCost > 0 
+          ? `• You have ${subscriptions.length} recurring subscription(s) totaling ${currSymbol}${totalSubscriptionCost.toFixed(2)}/month. Review these to ensure you still get value from all of them.`
+          : `• Plan ahead: setting up recurring categories for utilities and bills will help you forecast fixed monthly expenses.`,
+        limitStatus < 0 
+          ? `• You are currently over budget by ${currSymbol}${Math.abs(limitStatus).toFixed(2)}. Reduce discretionary spending immediately to balance your sheet.`
+          : `• You have ${currSymbol}${limitStatus.toFixed(2)} remaining. Keeping your daily spending under ${currSymbol}${getSafeDailyLimit().toFixed(2)} will guarantee you stay within budget.`
+      ];
+      
+      setAiInsights(fallbackTips.join('\n'));
     }
     setIsAiInsightsLoading(false);
   };
