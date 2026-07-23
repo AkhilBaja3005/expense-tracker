@@ -559,28 +559,6 @@ export default function App() {
               </h3>
               <AnalyticsCharts expenses={expenses} currencySymbol={currSymbol} />
             </div>
-
-            {/* Utility Alerts */}
-            <div className="glass-card" style={{ display: 'flex', gap: '10px' }}>
-              {notificationStatus !== 'granted' && (
-                <button 
-                  onClick={triggerNotificationTest}
-                  style={{
-                    flex: 1,
-                    background: 'var(--accent-glow)',
-                    border: '1px solid var(--accent-primary)',
-                    color: 'var(--accent-primary)',
-                    padding: '10px',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    fontWeight: '600'
-                  }}
-                >
-                  🔔 Alerts
-                </button>
-              )}
-            </div>
           </div>
 
           {/* RIGHT SIDEBAR */}
