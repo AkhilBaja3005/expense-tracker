@@ -102,6 +102,11 @@ export default function App() {
       return;
     }
 
+    if (isOffline) {
+      setDailyReminder('⚠️ Log your daily expenses to keep your streaks alive!');
+      return;
+    }
+
     const fetchReminder = async () => {
       try {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 'AQ.Ab8RN6Kzvrqkj0dt7I38FY9ouxPrG9RLkZ2uUwq8TfS-G8yLhA';
@@ -111,7 +116,7 @@ export default function App() {
           body: JSON.stringify({
             contents: [{
               parts: [{
-                text: `Generate a single short, creative, motivational or witty notification alert message (maximum 12 words) reminding a user to log their daily expenses on their tracker. Return ONLY the message string.`
+                text: `Generate a single short, creative, motivational or witty notification alert message (maximum 8 words, no punctuation) reminding a user to log their daily expenses. Return ONLY the message string.`
               }]
             }]
           })
@@ -130,7 +135,7 @@ export default function App() {
     };
 
     fetchReminder();
-  }, [expenses, hasLoggedToday]);
+  }, [expenses, hasLoggedToday, isOffline]);
 
   // AI Savings Advisor state
   const [aiInsights, setAiInsights] = useState('');
@@ -304,6 +309,11 @@ export default function App() {
 
   // Fetch AI Financial Insights from Gemini with smart offline fallback
   const fetchAiInsights = async () => {
+    if (isOffline) {
+      setAiInsights('💡 AI Insights are unavailable while offline. Please connect to the internet.');
+      return;
+    }
+
     setIsAiInsightsLoading(true);
     setAiInsights('');
     
@@ -717,11 +727,31 @@ export default function App() {
             )}
 
             {/* Category Budgets Warnings list */}
-            {Object.keys(categoryBudgets).length > 0 && (
-              <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-secondary)' }}>
                   Category Budgets
                 </h3>
+                {Object.keys(categoryBudgets).length === 0 && (
+                  <button 
+                    onClick={() => setActiveBudgetModal(true)}
+                    style={{
+                      background: 'var(--accent-glow)',
+                      border: '1px solid var(--accent-primary)',
+                      color: 'var(--accent-primary)',
+                      padding: '4px 10px',
+                      borderRadius: '20px',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: '600'
+                    }}
+                  >
+                    + Set limits
+                  </button>
+                )}
+              </div>
+              
+              {Object.keys(categoryBudgets).length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {Object.entries(categoryBudgets).map(([catKey, catLimit]) => {
                     const catSpent = getCategorySpending(catKey);
@@ -746,8 +776,12 @@ export default function App() {
                     );
                   })}
                 </div>
-              </div>
-            )}
+              ) : (
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                  No category limits set. Set individual spending limits on Food, Dining, Shopping, etc., to monitor them closely.
+                </p>
+              )}
+            </div>
 
             {/* Distribution chart & AI Savings Advisor */}
             <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
