@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: expenser-pwa
+    env: static
+    buildCommand: npm run build
+    publishDir: dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: max-age=0, must-revalidate
