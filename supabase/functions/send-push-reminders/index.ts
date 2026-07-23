@@ -5,8 +5,9 @@ const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY") || "BNT0tNWiED6i5vaUz_
 const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY") || "ZTGudhSs94NfqypJtg6ShVb6qhZykFKAa6YDAg_dRsM";
 const GCM_API_KEY = Deno.env.get("GCM_API_KEY") || ""; // Optional GCM API key for FCM
 
+// Apple requires a valid, reachable email address in VAPID details to authorize pushes
 webPush.setVapidDetails(
-  "mailto:support@expensetracker.local",
+  "mailto:akhilbaja3005@gmail.com",
   VAPID_PUBLIC_KEY,
   VAPID_PRIVATE_KEY
 );
