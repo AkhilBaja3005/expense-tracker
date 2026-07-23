@@ -1,8 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.8";
 import webPush from "npm:web-push";
 
-const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY") || "BNT0tNWiED6i5vaUz_yFbNY4tEJIP9Rs1G4HeVcrT7wK9GcDNc2lUR7oBJYB91x86jfpk_JTIx8pYlB4bx7qn9w";
-const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY") || "ZTGudhSs94NfqypJtg6ShVb6qhZykFKAa6YDAg_dRsM";
+const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY");
+const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY");
+
+if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+  throw new Error("VAPID keys are not configured in Supabase environment secrets.");
+}
 const GCM_API_KEY = Deno.env.get("GCM_API_KEY") || ""; // Optional GCM API key for FCM
 
 // Apple requires a valid, reachable email address in VAPID details to authorize pushes
