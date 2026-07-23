@@ -77,6 +77,9 @@ export default function App() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
+  // Mobile Tab State
+  const [activeTab, setActiveTab] = useState('dashboard');
+
   // Daily tracker reminder
   const [dailyReminder, setDailyReminder] = useState('');
 
@@ -662,7 +665,7 @@ export default function App() {
         <div className="desktop-grid">
           
           {/* LEFT SIDEBAR (Budget, Analytics & Subscription Lists) */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className={`left-column ${activeTab === 'dashboard' ? 'show-mobile' : 'hide-mobile'}`} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {/* Overall Budget Status */}
             <div className="glass-card budget-summary">
               <div className="budget-row">
@@ -857,7 +860,7 @@ export default function App() {
           </div>
 
           {/* RIGHT SIDEBAR */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className={`right-column ${activeTab === 'expenses' ? 'show-mobile' : 'hide-mobile'}`} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div>
               <div className="section-title" style={{ marginBottom: '12px' }}>
                 <span>Expenses List</span>
@@ -1018,6 +1021,24 @@ export default function App() {
 
         </div>
       </main>
+
+      {/* Bottom Navigation Bar (Mobile Only) */}
+      <div className="mobile-nav-bar">
+        <button 
+          onClick={() => setActiveTab('dashboard')} 
+          className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
+        >
+          <span className="icon">📊</span>
+          <span>Overview</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('expenses')} 
+          className={`nav-item ${activeTab === 'expenses' ? 'active' : ''}`}
+        >
+          <span className="icon">💸</span>
+          <span>Transactions</span>
+        </button>
+      </div>
 
       {/* Floating Action Button (Mobile Only) */}
       <button className="fab" onClick={() => {

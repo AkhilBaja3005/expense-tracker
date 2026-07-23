@@ -653,3 +653,90 @@ body {
 .sync-skeleton {
   animation: pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+/* Mobile Columns Toggle */
+@media (max-width: 767px) {
+  .left-column.hide-mobile, .right-column.hide-mobile {
+    display: none !important;
+  }
+}
+
+/* Mobile Viewport Height-Lock & Scroll containment */
+@media (max-width: 767px) {
+  body {
+    overflow: hidden !important;
+    height: 100vh;
+    position: fixed;
+    width: 100%;
+  }
+
+  .app-container {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    padding-bottom: 80px; /* Leave space for bottom tab bar */
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .fab {
+    bottom: 84px !important; /* Move FAB above the bottom nav bar */
+  }
+}
+
+/* Bottom Navigation Bar Styles */
+.mobile-nav-bar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .mobile-nav-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 64px;
+    background: rgba(17, 24, 39, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--glass-border);
+    justify-content: space-around;
+    align-items: center;
+    z-index: 90;
+    padding-bottom: env(safe-area-inset-bottom); /* iOS home indicator safe area support */
+  }
+
+  .mobile-nav-bar .nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-family: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    width: 50%;
+    height: 100%;
+    transition: color 0.2s;
+  }
+
+  .mobile-nav-bar .nav-item.active {
+    color: var(--accent-primary);
+    font-weight: 700;
+  }
+
+  .mobile-nav-bar .nav-item .icon {
+    font-size: 20px;
+  }
+}
+
