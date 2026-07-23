@@ -803,3 +803,40 @@ h1, h2, h3, h4, .budget-amount, .section-title span {
     transform: scale(1.1);
   }
 }
+
+/* Print-Optimized Stylesheet Override */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .header, .mobile-nav-bar, .fab, button, label, select, input, .offline-banner, .btn-group, .form-group {
+    display: none !important;
+  }
+  .app-container {
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+  .desktop-grid {
+    display: block !important;
+  }
+  .left-column, .right-column {
+    display: block !important;
+    width: 100% !important;
+    opacity: 1 !important;
+  }
+  .glass-card {
+    background: none !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: none !important;
+    color: #000000 !important;
+    margin-bottom: 20px !important;
+    page-break-inside: avoid !important;
+  }
+  * {
+    color: #000000 !important;
+    text-shadow: none !important;
+  }
+}

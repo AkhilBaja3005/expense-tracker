@@ -1987,6 +1987,23 @@ export default function App() {
                 </label>
               </div>
 
+              <button 
+                onClick={() => window.print()}
+                style={{
+                  width: '100%',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--glass-border)',
+                  color: 'var(--text-primary)',
+                  padding: '10px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: '600'
+                }}
+              >
+                📄 Export PDF Report
+              </button>
+
               <button
                 onClick={sendTestNotification}
                 style={{
