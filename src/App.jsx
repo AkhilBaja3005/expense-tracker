@@ -182,6 +182,19 @@ export default function App() {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js').then((reg) => {
           console.log('SW registered:', reg);
+
+          // Force auto-reload when a new service worker update is found and installed
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (newWorker) {
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  console.log('New update available. Force reloading...');
+                  window.location.reload();
+                }
+              });
+            }
+          });
         }).catch((err) => {
           console.error('SW registration failed:', err);
         });
