@@ -283,7 +283,8 @@ export async function syncFromCloud(userId, onSyncDone) {
         dateAdded: item.date_added,
         dateModified: item.date_modified,
         isSubscription: !!item.is_subscription,
-        billingDay: item.billing_day
+        billingDay: item.billing_day,
+        isDemo: !!item.is_demo
       }));
       saveExpenses(formattedExpenses, userId);
     }

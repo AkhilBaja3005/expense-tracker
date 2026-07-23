@@ -978,7 +978,8 @@ export default function App() {
         date: new Date().toISOString().split('T')[0],
         notes: 'Morning coffee',
         dateAdded: new Date().toISOString(),
-        dateModified: new Date().toISOString()
+        dateModified: new Date().toISOString(),
+        isDemo: true
       },
       {
         id: crypto.randomUUID(),
@@ -988,7 +989,8 @@ export default function App() {
         date: new Date().toISOString().split('T')[0],
         notes: 'Office ride',
         dateAdded: new Date().toISOString(),
-        dateModified: new Date().toISOString()
+        dateModified: new Date().toISOString(),
+        isDemo: true
       },
       {
         id: crypto.randomUUID(),
@@ -1000,7 +1002,8 @@ export default function App() {
         isSubscription: true,
         billingDay: 15,
         dateAdded: new Date().toISOString(),
-        dateModified: new Date().toISOString()
+        dateModified: new Date().toISOString(),
+        isDemo: true
       },
       {
         id: crypto.randomUUID(),
@@ -1010,7 +1013,8 @@ export default function App() {
         date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         notes: 'Whole Foods purchase',
         dateAdded: new Date().toISOString(),
-        dateModified: new Date().toISOString()
+        dateModified: new Date().toISOString(),
+        isDemo: true
       },
       {
         id: crypto.randomUUID(),
@@ -1020,7 +1024,8 @@ export default function App() {
         date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         notes: 'Winter jacket',
         dateAdded: new Date().toISOString(),
-        dateModified: new Date().toISOString()
+        dateModified: new Date().toISOString(),
+        isDemo: true
       },
       {
         id: crypto.randomUUID(),
@@ -1030,7 +1035,8 @@ export default function App() {
         date: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         notes: 'Evening movie',
         dateAdded: new Date().toISOString(),
-        dateModified: new Date().toISOString()
+        dateModified: new Date().toISOString(),
+        isDemo: true
       }
     ];
 
@@ -1051,7 +1057,8 @@ export default function App() {
           date_added: e.dateAdded,
           date_modified: e.dateModified,
           is_subscription: !!e.isSubscription,
-          billing_day: e.billingDay
+          billing_day: e.billingDay,
+          is_demo: true
         }));
         await supabase.from('expenses').upsert(formattedDemo);
       } catch (err) {
@@ -1061,6 +1068,26 @@ export default function App() {
       }
     }
   }, [userId]);
+
+  const handleClearDemoData = React.useCallback(async () => {
+    const cleanExpenses = expenses.filter(e => !e.isDemo);
+    setExpenses(cleanExpenses);
+    saveExpenses(cleanExpenses, userId);
+    
+    if (userId) {
+      setIsSyncing(true);
+      try {
+        const demoIds = expenses.filter(e => e.isDemo).map(e => e.id);
+        if (demoIds.length > 0) {
+          await supabase.from('expenses').delete().in('id', demoIds);
+        }
+      } catch (err) {
+        console.error('Failed to clear demo data from cloud:', err);
+      } finally {
+        setIsSyncing(false);
+      }
+    }
+  }, [expenses, userId]);
 
   const handleAddSavingsGoal = React.useCallback(async (name, targetAmt, deadline) => {
     const newGoal = {
@@ -1147,6 +1174,11 @@ export default function App() {
       setSwipedItemId(null);
     }
   }, [handleDeleteExpense]);
+
+  // Detect if list contains demo items
+  const hasDemoData = React.useMemo(() => {
+    return expenses.some(e => e.isDemo);
+  }, [expenses]);
 
   // Filter & Sort expenses logic
   const filteredExpenses = React.useMemo(() => {
@@ -1938,7 +1970,41 @@ export default function App() {
                   )}
                 </div>
               ) : (
-                <div className="expense-list">
+                <>
+                  {hasDemoData && (
+                    <div style={{
+                      background: 'rgba(251, 146, 60, 0.08)',
+                      border: '1px solid rgba(251, 146, 60, 0.3)',
+                      borderRadius: '8px',
+                      padding: '8px 12px',
+                      marginBottom: '12px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      fontSize: '11px',
+                      color: 'var(--text-secondary)'
+                    }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>🧪</span> <span>Currently showing sample demo data.</span>
+                      </span>
+                      <button
+                        onClick={handleClearDemoData}
+                        style={{
+                          background: 'rgba(244, 63, 94, 0.1)',
+                          border: '1px solid rgba(244, 63, 94, 0.25)',
+                          color: 'var(--danger)',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          fontSize: '10px'
+                        }}
+                      >
+                        Clear Demo Data
+                      </button>
+                    </div>
+                  )}
+                  <div className="expense-list">
                   {filteredExpenses.map((exp) => {
                     const cat = CATEGORIES[exp.category] || CATEGORIES.Others;
                     const catLimit = categoryBudgets[exp.category];
@@ -1962,7 +2028,8 @@ export default function App() {
                     );
                   })}
                 </div>
-              )}
+              </>
+            )}
             </div>
           </div>
 
