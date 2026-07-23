@@ -15,7 +15,12 @@ function IncomeCard({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!source.trim() || !amount) return;
-    onAddIncome(source, parseFloat(amount), date, notes);
+    const parsedAmount = parseFloat(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      alert('Please enter a valid amount greater than 0.');
+      return;
+    }
+    onAddIncome(source, parsedAmount, date, notes);
     setSource('');
     setAmount('');
     setNotes('');
@@ -66,6 +71,8 @@ function IncomeCard({
           <div style={{ display: 'flex', gap: '6px' }}>
             <input
               type="number"
+              min="0.01"
+              step="0.01"
               placeholder={`Amount (${currencySymbol})`}
               className="input-field"
               value={amount}

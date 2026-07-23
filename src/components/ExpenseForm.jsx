@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CATEGORIES, suggestCategory, suggestCategoryWithGemini, learnCategory } from '../utils/categorizer';
+import { callGemini } from '../utils/gemini';
 
 function ExpenseForm({ 
   expense, 
@@ -116,46 +117,25 @@ function ExpenseForm({
         const base64Data = reader.result.split(',')[1];
         const mimeType = file.type;
 
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-        if (!apiKey) {
-          alert("Gemini API Key is missing. Please add VITE_GEMINI_API_KEY to your environment.");
-          setIsOcrLoading(false);
-          return;
-        }
-
         // Call Gemini multimodal API (3.1-flash-lite supports images too and is faster!)
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                {
-                  inlineData: {
-                    mimeType: mimeType,
-                    data: base64Data
-                  }
-                },
-                {
-                  text: "You are an expert receipt parser. Scan this receipt image and extract the main store name (description), total spending amount, and categorise it into one of these keys: Food, Transport, Shopping, Bills, Entertainment, Health, Others. Return ONLY a single raw valid JSON object and nothing else. Output format:\n{\n  \"description\": \"Store Name\",\n  \"amount\": 12.50,\n  \"category\": \"Food\"\n}"
-                }
-              ]
-            }]
-          })
-        });
+        const jsonText = await callGemini(
+          [
+            {
+              inlineData: {
+                mimeType: mimeType,
+                data: base64Data
+              }
+            },
+            {
+              text: "You are an expert receipt parser. Scan this receipt image and extract the main store name (description), total spending amount, and categorise it into one of these keys: Food, Transport, Shopping, Bills, Entertainment, Health, Others. Return ONLY a single raw valid JSON object and nothing else. Output format:\n{\n  \"description\": \"Store Name\",\n  \"amount\": 12.50,\n  \"category\": \"Food\"\n}"
+            }
+          ],
+          { models: ['gemini-3.1-flash-lite'] }
+        );
 
-        if (!response.ok) throw new Error("Gemini OCR request failed");
-
-        const result = await response.json();
-        const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!jsonText) throw new Error("Failed to extract content text from Gemini response");
-        
         const cleanJson = jsonText.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(cleanJson);
-        
+
         if (parsed.description) setDescription(parsed.description);
         if (parsed.amount) setAmount(parsed.amount.toString());
         if (parsed.category) setCategory(parsed.category);
@@ -172,13 +152,19 @@ function ExpenseForm({
     e.preventDefault();
     if (!description.trim() || !amount) return;
 
+    const parsedAmount = parseFloat(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      alert('Please enter a valid amount greater than 0.');
+      return;
+    }
+
     if (!expense && category !== suggestedCat) {
       learnCategory(description, category);
     }
 
     onSave({
       description,
-      amount: parseFloat(amount),
+      amount: parsedAmount,
       category,
       date,
       notes,
@@ -251,6 +237,7 @@ function ExpenseForm({
             <input
               type="number"
               step="0.01"
+              min="0.01"
               className="input-field"
               placeholder="0.00"
               value={amount}

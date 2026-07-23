@@ -1,3 +1,5 @@
+import { callGemini } from './gemini';
+
 // Default categories with metadata
 export const CATEGORIES = {
   Food: { name: 'Food & Dining', color: '#f59e0b', icon: '🍔' },
@@ -20,7 +22,6 @@ const KEYWORDS = {
 };
 
 const STORAGE_KEY = 'expenser_custom_categorization';
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 // Get custom rules from localStorage
 function getCustomRules() {
@@ -85,27 +86,11 @@ export async function suggestCategoryWithGemini(description, signal) {
   }
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      signal,
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: `Classify this expense description: "${description}". It must map to exactly one of these category keys: Food, Transport, Shopping, Bills, Entertainment, Health, Others. Return ONLY the category key name and absolutely nothing else.`
-          }]
-        }]
-      })
-    });
+    const text = await callGemini(
+      [{ text: `Classify this expense description: "${description}". It must map to exactly one of these category keys: Food, Transport, Shopping, Bills, Entertainment, Health, Others. Return ONLY the category key name and absolutely nothing else.` }],
+      { models: ['gemini-3.1-flash-lite'], signal }
+    );
 
-    if (!response.ok) throw new Error('API request failed');
-
-    const result = await response.json();
-    const text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    
     if (text && CATEGORIES[text]) {
       return text;
     }

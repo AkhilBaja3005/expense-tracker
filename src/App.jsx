@@ -1,96 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  getExpenses, 
-  addExpense, 
-  updateExpense, 
-  deleteExpense, 
-  getBudget, 
-  saveBudget, 
-  syncFromCloud, 
-  saveCloudSettings,
-  getCategoryBudgets,
-  saveCategoryBudgets,
-  syncOfflineQueue,
-  getPendingSyncCount,
-  getSyncQueue,
-  deleteFromSyncQueue,
-  saveExpenses,
-  getSavingsGoals,
-  saveSavingsGoals,
-  getIncome,
-  saveIncome
+import React, { useState } from 'react';
+import {
+  getExpenses,
+  addExpense,
+  updateExpense,
+  deleteExpense,
+  getPendingSyncCount
 } from './utils/storage';
 import { CATEGORIES } from './utils/categorizer';
 import ExpenseForm from './components/ExpenseForm';
 import { supabase } from './utils/supabaseClient';
-
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding)
-    .replace(/-/g, '+')
-    .replace(/_/g, '/');
-
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
-
-const getSubscriptionCountdown = (billingDay) => {
-  if (!billingDay) return null;
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  
-  // Set time of today to midnight for clean comparison
-  const todayMidnight = new Date(year, month, today.getDate());
-  let billingDate = new Date(year, month, billingDay);
-  
-  if (billingDate < todayMidnight) {
-    billingDate = new Date(year, month + 1, billingDay);
-  }
-  
-  const diffTime = billingDate - todayMidnight;
-  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-  
-  if (diffDays === 0) {
-    return 'due today 🔔';
-  }
-  if (diffDays === 1) {
-    return 'due tomorrow ⏰';
-  }
-  return `due in ${diffDays} days`;
-};
-
-const highlightText = (text, highlight) => {
-  if (!highlight || !highlight.trim()) return text;
-  const parts = text.split(new RegExp(`(${highlight.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
-  return (
-    <span>
-      {parts.map((part, i) => 
-        part.toLowerCase() === highlight.toLowerCase() 
-          ? <mark key={i} className="search-highlight" style={{ background: 'rgba(34, 211, 238, 0.35)', color: 'white', borderRadius: '2px', padding: '0 2px' }}>{part}</mark> 
-          : part
-      )}
-    </span>
-  );
-};
-import AnalyticsCharts from './components/AnalyticsCharts';
+import { useAuth } from './hooks/useAuth';
+import { useExpenseData, CURRENCIES } from './hooks/useExpenseData';
+import { useAiFeatures } from './hooks/useAiFeatures';
+import { usePwaInstall } from './hooks/usePwaInstall';
 import BudgetModal from './components/BudgetModal';
 import OfflineQueueModal from './components/OfflineQueueModal';
-import ExpenseListItem from './components/ExpenseListItem';
-import SavingsGoalsCard from './components/SavingsGoalsCard';
-import IncomeCard from './components/IncomeCard';
 import CsvMapperModal from './components/CsvMapperModal';
-
-const CURRENCIES = {
-  USD: { symbol: '$', name: 'USD ($)' },
-  INR: { symbol: '₹', name: 'INR (₹)' },
-  GBP: { symbol: '£', name: 'GBP (£)' }
-};
+import DashboardSidebar from './components/DashboardSidebar';
+import ExpensesPanel from './components/ExpensesPanel';
 
 const SORT_OPTIONS = {
   newest: 'Newest First',
@@ -107,54 +34,42 @@ const DATE_FILTERS = {
   custom: 'Custom Date'
 };
 
-function decodeJwt(token) {
-  try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-    return JSON.parse(jsonPayload);
-  } catch {
-    return null;
-  }
-}
-
 export default function App() {
-  const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem('expenser_user');
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
+  const { user, handleSignOut } = useAuth();
 
-  const [expenses, setExpenses] = useState([]);
-  const [budget, setBudget] = useState(1000);
-  const [categoryBudgets, setCategoryBudgets] = useState({});
-  const [currency, setCurrency] = useState('USD');
+  const {
+    userId,
+    expenses, setExpenses,
+    budget,
+    categoryBudgets,
+    currency,
+    goals,
+    incomeList,
+    isOffline, isSyncing,
+    pendingSyncs, setPendingSyncs,
+    toastMessage,
+    triggerCloudSync,
+    handleCurrencyChange,
+    handleSaveBudget,
+    handleResetCache,
+    handleLoadDemoData,
+    handleClearDemoData,
+    handleAddSavingsGoal,
+    handleAddGoalContribution,
+    handleDeleteSavingsGoal,
+    handleAddIncome,
+    handleDeleteIncome
+  } = useExpenseData(user);
 
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [pendingSyncs, setPendingSyncs] = useState(0);
-  
   const [activeForm, setActiveForm] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
   const [activeBudgetModal, setActiveBudgetModal] = useState(false);
   const [showQueueInspector, setShowQueueInspector] = useState(false);
 
-  // PWA Install Banner states
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
-  const [showInstallBanner, setShowInstallBanner] = useState(false);
-
-  // AI Forecasting Projections states
-  const [aiForecast, setAiForecast] = useState('');
-  const [isAiForecastLoading, setIsAiForecastLoading] = useState(false);
-
-  // Savings Goals states
-  const [goals, setGoals] = useState([]);
-  const [incomeList, setIncomeList] = useState([]);
   const [csvHeaders, setCsvHeaders] = useState([]);
   const [csvRows, setCsvRows] = useState([]);
   const [showCsvMapper, setShowCsvMapper] = useState(false);
-  
+
   // Sorters, date filters, and reminders state
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
@@ -172,16 +87,6 @@ export default function App() {
   // Chart Period State ('today', 'week', 'month', 'all')
   const [chartPeriod, setChartPeriod] = useState('all');
 
-  // Daily tracker reminder
-  const [dailyReminder, setDailyReminder] = useState('');
-
-  // Push notifications toggle states
-  const [isPushSupported, setIsPushSupported] = useState(false);
-  const [isPushEnabled, setIsPushEnabled] = useState(false);
-
-  // Reconnection Sync Toast state
-  const [toastMessage, setToastMessage] = useState(null);
-
   // Check if user has logged any expenses today
   const hasLoggedToday = expenses.some((exp) => {
     const expDateStr = new Date(exp.date).toISOString().split('T')[0];
@@ -189,455 +94,6 @@ export default function App() {
     return expDateStr === todayStr;
   });
 
-  // Track network status & auto-flush sync queue
-  useEffect(() => {
-    const goOnline = async () => {
-      setIsOffline(false);
-      setIsSyncing(true);
-      await syncOfflineQueue();
-      if (user?.id) {
-        await syncFromCloud(user.id, () => {
-          setExpenses(getExpenses(user.id));
-        });
-      }
-      setIsSyncing(false);
-      setPendingSyncs(getPendingSyncCount());
-      setToastMessage('🟢 Back online! Syncing your local changes with Supabase...');
-      setTimeout(() => setToastMessage(null), 4000);
-    };
-    
-    const goOffline = () => {
-      setIsOffline(true);
-      setToastMessage('🔌 Offline mode active. Local changes will sync when online.');
-      setTimeout(() => setToastMessage(null), 4000);
-    };
-
-    window.addEventListener('online', goOnline);
-    window.addEventListener('offline', goOffline);
-    return () => {
-      window.removeEventListener('online', goOnline);
-      window.removeEventListener('offline', goOffline);
-    };
-  }, [user]);
-
-  // Fetch or retrieve daily reminder message
-  useEffect(() => {
-    if (hasLoggedToday) {
-      setDailyReminder('');
-      return;
-    }
-
-    const todayStr = new Date().toISOString().split('T')[0];
-    const cachedReminder = sessionStorage.getItem(`expenser_reminder_${todayStr}`);
-
-    if (cachedReminder) {
-      setDailyReminder(cachedReminder);
-      return;
-    }
-
-    if (isOffline) {
-      setDailyReminder('⚠️ Log your daily expenses to keep your streaks alive!');
-      return;
-    }
-
-    const fetchReminder = async () => {
-      try {
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-        if (!apiKey) throw new Error("API Key missing");
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: `Generate a single short, creative, motivational or witty notification alert message (maximum 8 words, no punctuation) reminding a user to log their daily expenses. Return ONLY the message string.`
-              }]
-            }]
-          })
-        });
-        if (!response.ok) throw new Error();
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        const reminderText = text ? text.trim() : '⚠️ You haven\'t logged any expenses today! Keep your streaks alive.';
-        setDailyReminder(reminderText);
-        sessionStorage.setItem(`expenser_reminder_${todayStr}`, reminderText);
-      } catch {
-        const defaultMsg = '⚠️ You haven\'t logged any expenses today! Keep your streaks alive.';
-        setDailyReminder(defaultMsg);
-        sessionStorage.setItem(`expenser_reminder_${todayStr}`, defaultMsg);
-      }
-    };
-
-    fetchReminder();
-  }, [expenses, hasLoggedToday, isOffline]);
-
-  // AI Savings Advisor state
-  const [aiInsights, setAiInsights] = useState('');
-  const [isAiInsightsLoading, setIsAiInsightsLoading] = useState(false);
-
-  const [notificationStatus, setNotificationStatus] = useState(() => {
-    return 'Notification' in window ? Notification.permission : 'unsupported';
-  });
-
-
-
-  // Sync data from cloud helper
-  const triggerCloudSync = async (userId) => {
-    if (!userId) return;
-    setIsSyncing(true);
-    await syncFromCloud(userId, () => {
-      setExpenses(getExpenses(userId));
-      setBudget(getBudget(userId));
-      setCategoryBudgets(getCategoryBudgets(userId));
-      setGoals(getSavingsGoals(userId));
-      setIncomeList(getIncome(userId));
-      const savedCurrency = localStorage.getItem(`expenser_currency_${userId}`);
-      if (savedCurrency && CURRENCIES[savedCurrency]) {
-        setCurrency(savedCurrency);
-      }
-    });
-    setIsSyncing(false);
-    setPendingSyncs(getPendingSyncCount());
-  };
-
-  const handleCredentialResponse = (response) => {
-    const profile = decodeJwt(response.credential);
-    if (profile) {
-      const userData = {
-        id: profile.sub,
-        name: profile.name,
-        email: profile.email,
-        picture: profile.picture
-      };
-      localStorage.setItem('expenser_user', JSON.stringify(userData));
-      setUser(userData);
-      triggerCloudSync(userData.id);
-    }
-  };
-
-  const handleSignOut = () => {
-    localStorage.removeItem('expenser_user');
-    setUser(null);
-  };
-
-  // Load user-specific data from local cache initially
-  useEffect(() => {
-    const userId = user?.id || null;
-    
-    // Apply selected theme variables
-    const themeAccent = localStorage.getItem('expenser_theme_accent') || 'cyan';
-    let primary = '6, 182, 212';
-    let glow = 'rgba(6, 182, 212, 0.15)';
-    if (themeAccent === 'rose') {
-      primary = '244, 63, 94';
-      glow = 'rgba(244, 63, 94, 0.15)';
-    } else if (themeAccent === 'emerald') {
-      primary = '16, 185, 129';
-      glow = 'rgba(16, 185, 129, 0.15)';
-    } else if (themeAccent === 'amber') {
-      primary = '245, 158, 11';
-      glow = 'rgba(245, 158, 11, 0.15)';
-    }
-    document.documentElement.style.setProperty('--accent-primary', `rgb(${primary})`);
-    document.documentElement.style.setProperty('--accent-glow', glow);
-
-    setExpenses(getExpenses(userId));
-    setBudget(getBudget(userId));
-    setCategoryBudgets(getCategoryBudgets(userId));
-    setGoals(getSavingsGoals(userId));
-    setIncomeList(getIncome(userId));
-    setPendingSyncs(getPendingSyncCount());
-
-    const savedCurrency = localStorage.getItem(`expenser_currency_${userId}`);
-    if (savedCurrency && CURRENCIES[savedCurrency]) {
-      setCurrency(savedCurrency);
-    } else {
-      setCurrency('USD');
-    }
-
-    if (userId) {
-      triggerCloudSync(userId);
-    }
-  }, [user]);
-
-  const handleCurrencyChange = async (e) => {
-    const nextCur = e.target.value;
-    setCurrency(nextCur);
-    const userId = user?.id || null;
-    localStorage.setItem(`expenser_currency_${userId}`, nextCur);
-    if (userId) {
-      await saveCloudSettings(userId, budget, nextCur, categoryBudgets);
-    }
-  };
-
-  // Setup Google Login & PWA Web Push Service Worker
-  useEffect(() => {
-    // 1. Service Worker registration and Web Push status query
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-        .then(async (reg) => {
-          console.log('SW registered successfully:', reg);
-          if ('PushManager' in window) {
-            setIsPushSupported(true);
-            const sub = await reg.pushManager.getSubscription();
-            setIsPushEnabled(!!sub);
-          }
-        })
-        .catch((err) => {
-          console.error('SW registration failed:', err);
-        });
-    }
-  }, [user]);
-
-  // Toggle push notifications (subscribe / unsubscribe)
-  const handleTogglePush = async () => {
-    if (!('serviceWorker' in navigator && 'PushManager' in window)) return;
-    if (!user?.id) {
-      alert('Please sign in to configure daily push reminders.');
-      return;
-    }
-    
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      if (isPushEnabled) {
-        // Unsubscribe active registration
-        const sub = await reg.pushManager.getSubscription();
-        if (sub) {
-          await sub.unsubscribe();
-          await supabase
-            .from('push_subscriptions')
-            .delete()
-            .eq('endpoint', sub.endpoint);
-        }
-        setIsPushEnabled(false);
-        console.log('Push notifications disabled.');
-      } else {
-        // Subscribe to push notifications
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') {
-          alert('Notification permissions are required to enable daily reminders.');
-          return;
-        }
-
-        const pubKey = 'BNT0tNWiED6i5vaUz_yFbNY4tEJIP9Rs1G4HeVcrT7wK9GcDNc2lUR7oBJYB91x86jfpk_JTIx8pYlB4bx7qn9w';
-        const subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(pubKey)
-        });
-
-        const p256dhKey = subscription.getKey('p256dh');
-        const authKey = subscription.getKey('auth');
-        if (!p256dhKey || !authKey) {
-          throw new Error("Web Push subscription keys are missing or unsupported by the browser.");
-        }
-
-        const p256dh = btoa(String.fromCharCode.apply(null, new Uint8Array(p256dhKey)));
-        const auth = btoa(String.fromCharCode.apply(null, new Uint8Array(authKey)));
-
-        await supabase.from('push_subscriptions').upsert({
-          user_id: user.id,
-          endpoint: subscription.endpoint,
-          p256dh,
-          auth
-        });
-
-        setIsPushEnabled(true);
-        console.log('Push notifications enabled.');
-      }
-    } catch (err) {
-      console.error('Push notification toggle failed:', err);
-      alert('Failed to modify push reminders: ' + err.message);
-    }
-  };
-
-  // Listen for native beforeinstallprompt PWA event
-  useEffect(() => {
-    const handleBeforeInstall = (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-      if (!isStandalone) {
-        setShowInstallBanner(true);
-      }
-    };
-    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
-    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
-  }, []);
-
-  const handleInstallPWA = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    console.log(`User PWA install prompt choice: ${outcome}`);
-    setDeferredPrompt(null);
-    setShowInstallBanner(false);
-  };
-
-  // Setup Google Login & version checks
-  useEffect(() => {
-    // 2. Version redeployment test notification notifier
-    const CURRENT_VERSION = 'v2.2.0';
-    const lastVersion = localStorage.getItem('expenser_app_version');
-    if (lastVersion && lastVersion !== CURRENT_VERSION) {
-      if (Notification.permission === 'granted') {
-        new Notification("Expense Tracker Updated! 🚀", {
-          body: `New version ${CURRENT_VERSION} has been successfully redeployed and is now live.`,
-          icon: "/icon.svg",
-          badge: "/icon.svg"
-        });
-      }
-    }
-    localStorage.setItem('expenser_app_version', CURRENT_VERSION);
-
-    // 3. Initialize Google login button if not logged in
-    if (!user && typeof window.google !== 'undefined') {
-      window.google.accounts.id.initialize({
-        client_id: "381822591589-cnbic33i53ra1puqr4jkj2hrqreub02e.apps.googleusercontent.com",
-        callback: handleCredentialResponse
-      });
-
-      const btnElement = document.getElementById("google-signin-btn");
-      if (btnElement) {
-        window.google.accounts.id.renderButton(
-          btnElement,
-          { theme: "outline", size: "large", width: "100%", alignment: "center" }
-        );
-      }
-    }
-  }, [user]);
-
-
-  const handleExportCSV = () => {
-    const headers = ['Description', 'Amount', 'Category', 'Date', 'Notes', 'Recurring Bill', 'Date Added', 'Date Modified'];
-    const rows = expenses.map(exp => [
-      `"${exp.description.replace(/"/g, '""')}"`,
-      exp.amount,
-      CATEGORIES[exp.category]?.name || exp.category,
-      exp.date,
-      `"${(exp.notes || '').replace(/"/g, '""')}"`,
-      exp.isSubscription ? 'Yes' : 'No',
-      exp.dateAdded,
-      exp.dateModified
-    ]);
-    
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `expenses_${user.name.replace(/\s+/g, '_').toLowerCase()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleImportCSV = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const text = evt.target.result;
-      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-      if (lines.length <= 1) {
-        alert('Invalid CSV file or empty list');
-        return;
-      }
-
-      const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-      const parsedRows = [];
-      for (let i = 1; i < lines.length; i++) {
-        const row = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-        const cleanRow = row.map(cell => cell.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
-        if (cleanRow.length > 0) {
-          parsedRows.push(cleanRow);
-        }
-      }
-
-      setCsvHeaders(rawHeaders);
-      setCsvRows(parsedRows);
-      setShowCsvMapper(true);
-    };
-    reader.readAsText(file);
-  };
-
-  const handleConfirmCsvImport = async (mapping) => {
-    const userId = user?.id || null;
-    const importedExpenses = [];
-
-    for (const row of csvRows) {
-      if (row.length < Math.max(mapping.description, mapping.amount) + 1) continue;
-      const desc = row[mapping.description] || 'Imported Expense';
-      const amt = parseFloat(row[mapping.amount]) || 0;
-      
-      let cat = 'Others';
-      if (mapping.category !== -1 && row[mapping.category]) {
-        const rawCat = row[mapping.category];
-        const matchedKey = Object.keys(CATEGORIES).find(
-          k => k.toLowerCase() === rawCat.toLowerCase() || CATEGORIES[k].name.toLowerCase() === rawCat.toLowerCase()
-        );
-        if (matchedKey) cat = matchedKey;
-      }
-
-      const date = mapping.date !== -1 && row[mapping.date] ? row[mapping.date] : new Date().toISOString().split('T')[0];
-      const notes = mapping.notes !== -1 ? row[mapping.notes] : '';
-
-      importedExpenses.push({
-        description: desc,
-        amount: amt,
-        category: cat,
-        date: date,
-        notes: notes,
-        isSubscription: false
-      });
-    }
-
-    if (importedExpenses.length > 0) {
-      for (const exp of importedExpenses) {
-        await addExpense(exp, userId);
-      }
-      setExpenses(getExpenses(userId));
-      alert(`Successfully imported ${importedExpenses.length} expenses!`);
-      triggerCloudSync(userId);
-    } else {
-      alert('No valid expenses found in CSV.');
-    }
-    setShowCsvMapper(false);
-  };
-
-  const sendTestNotification = () => {
-    if (!('Notification' in window)) {
-      alert("This browser does not support push notifications.");
-      return;
-    }
-
-    if (Notification.permission === 'granted') {
-      new Notification("Expense Tracker Test Alert 🔔", {
-        body: "Success! PWA push notifications are configured and working correctly.",
-        icon: "/icon.svg",
-        badge: "/icon.svg",
-        tag: "test-notification"
-      });
-    } else if (Notification.permission !== 'denied') {
-      Notification.requestPermission().then(permission => {
-        if (permission === 'granted') {
-          new Notification("Expense Tracker Test Alert 🔔", {
-            body: "Success! PWA push notifications are configured and working correctly.",
-            icon: "/icon.svg",
-            badge: "/icon.svg",
-            tag: "test-notification"
-          });
-          setNotificationStatus('granted');
-        } else {
-          alert("Notification permission was denied.");
-        }
-      });
-    } else {
-      alert("Notification permission is blocked. Please reset/enable notification permissions in your browser site settings to receive notifications.");
-    }
-  };
-
-  const userId = user?.id || null;
   const currSymbol = CURRENCIES[currency].symbol;
 
   const totalSpent = React.useMemo(() => {
@@ -700,11 +156,11 @@ export default function App() {
     const today = new Date();
     const totalDays = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
     const currentDay = today.getDate();
-    
+
     const elapsedFraction = currentDay / totalDays;
     const spentFraction = totalSpent / budget;
     const diff = spentFraction - elapsedFraction;
-    
+
     if (diff <= 0) return 100;
     return Math.max(0, Math.min(100, Math.round((1 - diff) * 100)));
   }, [budget, totalSpent]);
@@ -718,193 +174,203 @@ export default function App() {
     return subscriptions.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
   }, [subscriptions]);
 
-  // Fetch AI Financial Insights from Gemini with smart offline fallback
-  const fetchAiInsights = async () => {
-    setIsAiInsightsLoading(true);
-    setAiInsights('');
-    
-    // Calculate category totals for prompts/fallbacks
-    const categoryTotals = {};
-    expenses.forEach(e => {
-      categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount;
-    });
+  const {
+    dailyReminder,
+    aiInsights, isAiInsightsLoading, fetchAiInsights,
+    aiForecast, isAiForecastLoading, fetchAiForecast
+  } = useAiFeatures({ expenses, hasLoggedToday, isOffline, budget, totalSpent, totalSubscriptionCost, subscriptions, safeDailyLimit, currSymbol });
 
-    // Find highest spending category
-    let highestCat = 'Others';
-    let highestAmt = 0;
-    Object.entries(categoryTotals).forEach(([cat, amt]) => {
-      if (amt > highestAmt) {
-        highestAmt = amt;
-        highestCat = CATEGORIES[cat]?.name || cat;
-      }
-    });
+  const {
+    showInstallBanner, setShowInstallBanner,
+    handleInstallPWA,
+    isPushSupported, isPushEnabled, handleTogglePush,
+    notificationStatus,
+    sendTestNotification,
+    updateAvailable, applyUpdate
+  } = usePwaInstall(user);
 
-    if (isOffline) {
-      const limitStatus = budget - totalSpent;
-      const offlineTips = [
-        `💡 Running Offline - showing local diagnostics:`,
-        `• Highest spending: ${highestCat} at ${currSymbol}${highestAmt.toFixed(2)}.`,
-        totalSubscriptionCost > 0
-          ? `• Recurring bills: ${subscriptions.length} subscriptions totaling ${currSymbol}${totalSubscriptionCost.toFixed(2)}/mo.`
-          : `• Tip: Setting up recurring budgets for utilities helps forecast fixed costs.`,
-        limitStatus < 0
-          ? `• Warning: You are currently over budget by ${currSymbol}${Math.abs(limitStatus).toFixed(2)}.`
-          : `• Status: ${currSymbol}${limitStatus.toFixed(2)} remaining. Safe limit is ${currSymbol}${safeDailyLimit.toFixed(2)}/day.`
-      ];
-      
-      setAiInsights(offlineTips.join('\n'));
-      setIsAiInsightsLoading(false);
-      return;
-    }
+  const handleExportCSV = () => {
+    const headers = ['Description', 'Amount', 'Category', 'Date', 'Notes', 'Recurring Bill', 'Date Added', 'Date Modified'];
+    const rows = expenses.map(exp => [
+      `"${exp.description.replace(/"/g, '""')}"`,
+      exp.amount,
+      CATEGORIES[exp.category]?.name || exp.category,
+      exp.date,
+      `"${(exp.notes || '').replace(/"/g, '""')}"`,
+      exp.isSubscription ? 'Yes' : 'No',
+      exp.dateAdded,
+      exp.dateModified
+    ]);
 
-    try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      if (!apiKey) throw new Error("API Key missing");
-
-      // 1. Attempt with gemini-2.5-flash
-      try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: `Analyze this monthly budget status:
-                - Overall Budget: ${currSymbol}${budget}
-                - Total Spent: ${currSymbol}${totalSpent}
-                - Recurring Bills Total: ${currSymbol}${totalSubscriptionCost}
-                - Spending per Category: ${JSON.stringify(categoryTotals)}
-                Please provide exactly 3 concise, bulleted, actionable savings suggestions in clean text (no markdown formatting, no stars). Keep it brief.`
-              }]
-            }]
-          })
-        });
-
-        if (!response.ok) throw new Error('gemini-2.5-flash failed/rate-limited');
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!text) throw new Error('Empty response');
-        setAiInsights(text.trim());
-        setIsAiInsightsLoading(false);
-        return;
-      } catch (err1) {
-        console.warn('gemini-2.5-flash failed, attempting gemini-3.1-flash-lite...', err1);
-        
-        // 2. Attempt with gemini-3.1-flash-lite as fallback
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: `Analyze this monthly budget status:
-                - Overall Budget: ${currSymbol}${budget}
-                - Total Spent: ${currSymbol}${totalSpent}
-                - Recurring Bills Total: ${currSymbol}${totalSubscriptionCost}
-                - Spending per Category: ${JSON.stringify(categoryTotals)}
-                Please provide exactly 3 concise, bulleted, actionable savings suggestions in clean text (no markdown formatting, no stars). Keep it brief.`
-              }]
-            }]
-          })
-        });
-
-        if (!response.ok) throw new Error('gemini-3.1-flash-lite failed/rate-limited');
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!text) throw new Error('Empty response');
-        setAiInsights(text.trim());
-        setIsAiInsightsLoading(false);
-        return;
-      }
-    } catch (e) {
-      console.warn('Both Gemini APIs failed, using local mathematical insights fallback.', e);
-      
-      // Smart Fallback insights based on actual user data
-      const limitStatus = budget - totalSpent;
-      const fallbackTips = [
-        `• Your highest spending category is ${highestCat} at ${currSymbol}${highestAmt.toFixed(2)}. Consider cutting down on non-essential items here.`,
-        totalSubscriptionCost > 0
-          ? `• You have ${subscriptions.length} recurring subscription(s) totaling ${currSymbol}${totalSubscriptionCost.toFixed(2)}/month. Review these to ensure you still get value from all of them.`
-          : `• Plan ahead: setting up recurring categories for utilities and bills will help you forecast fixed monthly expenses.`,
-        limitStatus < 0
-          ? `• You are currently over budget by ${currSymbol}${Math.abs(limitStatus).toFixed(2)}. Reduce discretionary spending immediately to balance your sheet.`
-          : `• You have ${currSymbol}${limitStatus.toFixed(2)} remaining. Keeping your daily spending under ${currSymbol}${safeDailyLimit.toFixed(2)} will guarantee you stay within budget.`
-      ];
-      
-      setAiInsights(fallbackTips.join('\n'));
-    }
-    setIsAiInsightsLoading(false);
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `expenses_${user.name.replace(/\s+/g, '_').toLowerCase()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  const fetchAiForecast = async () => {
-    setIsAiForecastLoading(true);
-    setAiForecast('');
+  const handleExportPDF = async () => {
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 14;
+    let y = 18;
 
-    // Calculate category totals
-    const categoryTotals = {};
-    expenses.forEach(e => {
-      categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount;
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.text('Expense Tracker Report', marginX, y);
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(`Generated ${new Date().toLocaleString()} for ${user.name}`, marginX, y + 6);
+    doc.setTextColor(0);
+    y += 16;
+
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'bold');
+    doc.text('Budget Summary', marginX, y);
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(9);
+    y += 6;
+    const summaryLines = [
+      `Overall Budget: ${currSymbol}${budget.toFixed(2)}`,
+      `Total Spent: ${currSymbol}${totalSpent.toFixed(2)}`,
+      `Remaining: ${currSymbol}${(budget - totalSpent).toFixed(2)}`,
+      `Health Score: ${healthScore}%`,
+      `Total Transactions: ${expenses.length}`
+    ];
+    summaryLines.forEach(line => {
+      doc.text(line, marginX, y);
+      y += 5.5;
     });
+    y += 4;
 
-    // Find highest category
-    let highestCat = 'Others';
-    let highestAmt = 0;
-    Object.entries(categoryTotals).forEach(([cat, amt]) => {
-      if (amt > highestAmt) {
-        highestAmt = amt;
-        highestCat = CATEGORIES[cat]?.name || cat;
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'bold');
+    doc.text('Category Breakdown', marginX, y);
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(9);
+    y += 6;
+    Object.entries(categorySpendings).filter(([, amt]) => amt > 0).forEach(([key, amt]) => {
+      const catName = CATEGORIES[key]?.name || key;
+      doc.text(`${catName}: ${currSymbol}${amt.toFixed(2)}`, marginX, y);
+      y += 5.5;
+    });
+    y += 6;
+
+    const colX = { desc: marginX, cat: marginX + 70, date: marginX + 110, amt: pageWidth - marginX };
+    const drawTableHeader = () => {
+      doc.setFontSize(11);
+      doc.setFont(undefined, 'bold');
+      doc.text('Transactions', marginX, y);
+      y += 6;
+      doc.setFontSize(9);
+      doc.text('Description', colX.desc, y);
+      doc.text('Category', colX.cat, y);
+      doc.text('Date', colX.date, y);
+      doc.text('Amount', colX.amt, y, { align: 'right' });
+      y += 2;
+      doc.setDrawColor(200);
+      doc.line(marginX, y, pageWidth - marginX, y);
+      y += 5;
+      doc.setFont(undefined, 'normal');
+    };
+
+    drawTableHeader();
+    const sortedExpenses = [...expenses].sort((a, b) => new Date(b.date) - new Date(a.date));
+    sortedExpenses.forEach(exp => {
+      if (y > pageHeight - 20) {
+        doc.addPage();
+        y = 18;
+        drawTableHeader();
       }
+      const catName = CATEGORIES[exp.category]?.name || exp.category;
+      doc.text(doc.splitTextToSize(exp.description, 64)[0], colX.desc, y);
+      doc.text(catName, colX.cat, y);
+      doc.text(new Date(exp.date).toLocaleDateString(), colX.date, y);
+      doc.text(`${currSymbol}${exp.amount.toFixed(2)}`, colX.amt, y, { align: 'right' });
+      y += 6;
     });
 
-    if (isOffline) {
-      const projectedSpent = totalSpent * 1.05;
-      const fallbackForecast = `🔮 Projected next month's spending: ${currSymbol}${projectedSpent.toFixed(2)} (Based on current spent of ${currSymbol}${totalSpent.toFixed(2)}).\n` +
-        `• Category Warning: Your highest spending category is ${highestCat}. Expect this to remain your primary cost area next month.\n` +
-        `• Tip: Pause unused subscriptions to save up to ${currSymbol}${totalSubscriptionCost.toFixed(2)} monthly.`;
-      setAiForecast(fallbackForecast);
-      setIsAiForecastLoading(false);
-      return;
-    }
+    doc.save(`expenses_${user.name.replace(/\s+/g, '_').toLowerCase()}_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
 
-    try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      if (!apiKey) throw new Error("API Key missing");
+  const handleImportCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `Analyze these expense details:
-              - Overall Monthly Budget: ${currSymbol}${budget}
-              - Total Spent so far: ${currSymbol}${totalSpent}
-              - Recurring Bills Total: ${currSymbol}${totalSubscriptionCost}
-              - Spending Category Breakdown: ${JSON.stringify(categoryTotals)}
-              Predict next month's spending projection in clean text. Provide a projected total cost, a brief prediction explanation, and 2 predictive rules to keep costs lower next month. Keep it short and actionable.`
-            }]
-          }]
-        })
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target.result;
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length <= 1) {
+        alert('Invalid CSV file or empty list');
+        return;
+      }
+
+      const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+      const parsedRows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const row = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+        const cleanRow = row.map(cell => cell.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
+        if (cleanRow.length > 0) {
+          parsedRows.push(cleanRow);
+        }
+      }
+
+      setCsvHeaders(rawHeaders);
+      setCsvRows(parsedRows);
+      setShowCsvMapper(true);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleConfirmCsvImport = async (mapping) => {
+    const importedExpenses = [];
+
+    for (const row of csvRows) {
+      if (row.length < Math.max(mapping.description, mapping.amount) + 1) continue;
+      const desc = row[mapping.description] || 'Imported Expense';
+      const amt = parseFloat(row[mapping.amount]) || 0;
+
+      let cat = 'Others';
+      if (mapping.category !== -1 && row[mapping.category]) {
+        const rawCat = row[mapping.category];
+        const matchedKey = Object.keys(CATEGORIES).find(
+          k => k.toLowerCase() === rawCat.toLowerCase() || CATEGORIES[k].name.toLowerCase() === rawCat.toLowerCase()
+        );
+        if (matchedKey) cat = matchedKey;
+      }
+
+      const date = mapping.date !== -1 && row[mapping.date] ? row[mapping.date] : new Date().toISOString().split('T')[0];
+      const notes = mapping.notes !== -1 ? row[mapping.notes] : '';
+
+      importedExpenses.push({
+        description: desc,
+        amount: amt,
+        category: cat,
+        date: date,
+        notes: notes,
+        isSubscription: false
       });
-
-      if (!response.ok) throw new Error('Gemini API call failed');
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) throw new Error('Empty response');
-      setAiForecast(text.trim());
-    } catch (err) {
-      console.error('Failed to load AI Forecast:', err);
-      const projectedSpent = totalSpent * 1.05;
-      setAiForecast(`🔮 Projection: ${currSymbol}${projectedSpent.toFixed(2)}\nAn error occurred loading the cloud AI forecast. Try again online.`);
-    } finally {
-      setIsAiForecastLoading(false);
     }
-  };
 
-  const getProgressBarClass = (prog) => {
-    if (prog >= 90) return 'progress-bar danger';
-    if (prog >= 75) return 'progress-bar warning';
-    return 'progress-bar';
+    if (importedExpenses.length > 0) {
+      for (const exp of importedExpenses) {
+        await addExpense(exp, userId);
+      }
+      setExpenses(getExpenses(userId));
+      alert(`Successfully imported ${importedExpenses.length} expenses!`);
+      triggerCloudSync(userId);
+    } else {
+      alert('No valid expenses found in CSV.');
+    }
+    setShowCsvMapper(false);
   };
 
   const categorySpendings = React.useMemo(() => {
@@ -929,12 +395,16 @@ export default function App() {
     return categorySpendings[catKey] || 0;
   }, [categorySpendings]);
 
-
   const handleSaveExpense = React.useCallback(async (data) => {
-    if (editingExpense) {
-      await updateExpense(editingExpense.id, data, userId);
-    } else {
-      await addExpense(data, userId);
+    try {
+      if (editingExpense) {
+        await updateExpense(editingExpense.id, data, userId);
+      } else {
+        await addExpense(data, userId);
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to save expense: invalid amount.');
+      return;
     }
     setExpenses(getExpenses(userId));
     setPendingSyncs(getPendingSyncCount());
@@ -962,7 +432,7 @@ export default function App() {
         });
       }
     }
-  }, [editingExpense, userId, totalSpent, budget, currSymbol, notificationStatus, categoryBudgets, getCategorySpending]);
+  }, [editingExpense, userId, totalSpent, budget, currSymbol, notificationStatus, categoryBudgets, getCategorySpending, setExpenses, setPendingSyncs]);
 
   const handleDeleteExpense = React.useCallback(async (id) => {
     await deleteExpense(id, userId);
@@ -970,266 +440,7 @@ export default function App() {
     setPendingSyncs(getPendingSyncCount());
     setActiveForm(false);
     setEditingExpense(null);
-  }, [userId]);
-
-  const handleSaveBudget = React.useCallback(async (newBudget, newCatBudgets) => {
-    saveBudget(newBudget, userId);
-    saveCategoryBudgets(newCatBudgets, userId);
-    setBudget(newBudget);
-    setCategoryBudgets(newCatBudgets);
-    setActiveBudgetModal(false);
-    if (userId) {
-      await saveCloudSettings(userId, newBudget, currency, newCatBudgets);
-    }
-  }, [userId, currency]);
-  const handleResetCache = React.useCallback(async () => {
-    if (!userId) return;
-    setIsSyncing(true);
-    try {
-      localStorage.removeItem(`expenser_expenses_${userId}`);
-      localStorage.removeItem(`expenser_budget_${userId}`);
-      localStorage.removeItem(`expenser_cat_budgets_${userId}`);
-      localStorage.removeItem('expenser_sync_queue');
-      
-      await syncFromCloud(userId, () => {
-        window.location.reload();
-      });
-    } catch (err) {
-      console.error('Failed to reset system cache:', err);
-      alert('Failed to reset system cache: ' + err.message);
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [userId]);
-
-  const handleLoadDemoData = React.useCallback(async () => {
-    const demoExpenses = [
-      {
-        id: crypto.randomUUID(),
-        description: 'Starbucks Coffee',
-        amount: 8.50,
-        category: 'Food',
-        date: new Date().toISOString().split('T')[0],
-        notes: 'Morning coffee',
-        dateAdded: new Date().toISOString(),
-        dateModified: new Date().toISOString(),
-        isDemo: true
-      },
-      {
-        id: crypto.randomUUID(),
-        description: 'Uber Ride',
-        amount: 18.20,
-        category: 'Transport',
-        date: new Date().toISOString().split('T')[0],
-        notes: 'Office ride',
-        dateAdded: new Date().toISOString(),
-        dateModified: new Date().toISOString(),
-        isDemo: true
-      },
-      {
-        id: crypto.randomUUID(),
-        description: 'Netflix subscription',
-        amount: 15.99,
-        category: 'Bills',
-        date: new Date().toISOString().split('T')[0],
-        notes: 'Monthly streaming bill',
-        isSubscription: true,
-        billingDay: 15,
-        dateAdded: new Date().toISOString(),
-        dateModified: new Date().toISOString(),
-        isDemo: true
-      },
-      {
-        id: crypto.randomUUID(),
-        description: 'Weekly Groceries Store',
-        amount: 72.40,
-        category: 'Food',
-        date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        notes: 'Whole Foods purchase',
-        dateAdded: new Date().toISOString(),
-        dateModified: new Date().toISOString(),
-        isDemo: true
-      },
-      {
-        id: crypto.randomUUID(),
-        description: 'Amazon shopping - Jacket',
-        amount: 54.00,
-        category: 'Shopping',
-        date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        notes: 'Winter jacket',
-        dateAdded: new Date().toISOString(),
-        dateModified: new Date().toISOString(),
-        isDemo: true
-      },
-      {
-        id: crypto.randomUUID(),
-        description: 'Cinema Movie Ticket',
-        amount: 12.50,
-        category: 'Entertainment',
-        date: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        notes: 'Evening movie',
-        dateAdded: new Date().toISOString(),
-        dateModified: new Date().toISOString(),
-        isDemo: true
-      }
-    ];
-
-    saveExpenses(demoExpenses, userId);
-    setExpenses(demoExpenses);
-    
-    if (userId) {
-      setIsSyncing(true);
-      try {
-        const formattedDemo = demoExpenses.map(e => ({
-          id: e.id,
-          user_id: userId,
-          description: e.description,
-          amount: e.amount,
-          category: e.category,
-          date: e.date,
-          notes: e.notes,
-          date_added: e.dateAdded,
-          date_modified: e.dateModified,
-          is_subscription: !!e.isSubscription,
-          billing_day: e.billingDay,
-          is_demo: true
-        }));
-        await supabase.from('expenses').upsert(formattedDemo);
-      } catch (err) {
-        console.error('Failed to upload demo data to cloud:', err);
-      } finally {
-        setIsSyncing(false);
-      }
-    }
-  }, [userId]);
-
-  const handleClearDemoData = React.useCallback(async () => {
-    const cleanExpenses = expenses.filter(e => !e.isDemo);
-    setExpenses(cleanExpenses);
-    saveExpenses(cleanExpenses, userId);
-    
-    if (userId) {
-      setIsSyncing(true);
-      try {
-        const demoIds = expenses.filter(e => e.isDemo).map(e => e.id);
-        if (demoIds.length > 0) {
-          await supabase.from('expenses').delete().in('id', demoIds);
-        }
-      } catch (err) {
-        console.error('Failed to clear demo data from cloud:', err);
-      } finally {
-        setIsSyncing(false);
-      }
-    }
-  }, [expenses, userId]);
-
-  const handleAddSavingsGoal = React.useCallback(async (name, targetAmt, deadline) => {
-    const newGoal = {
-      id: 'goal_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-      name,
-      targetAmount: parseFloat(targetAmt) || 0,
-      currentAmount: 0,
-      deadline,
-      createdAt: new Date().toISOString()
-    };
-    const updatedGoals = [...goals, newGoal];
-    setGoals(updatedGoals);
-    saveSavingsGoals(updatedGoals, userId);
-
-    if (userId) {
-      try {
-        await supabase.from('savings_goals').insert({
-          id: newGoal.id,
-          user_id: userId,
-          name: newGoal.name,
-          target_amount: newGoal.targetAmount,
-          current_amount: newGoal.currentAmount,
-          deadline: newGoal.deadline || null
-        });
-      } catch (err) {
-        console.error("Failed to upload savings goal:", err);
-      }
-    }
-  }, [goals, userId]);
-
-  const handleAddGoalContribution = React.useCallback(async (goalId, amountToAllocate) => {
-    const updatedGoals = goals.map(g => {
-      if (g.id === goalId) {
-        return { ...g, currentAmount: g.currentAmount + (parseFloat(amountToAllocate) || 0) };
-      }
-      return g;
-    });
-    setGoals(updatedGoals);
-    saveSavingsGoals(updatedGoals, userId);
-
-    if (userId) {
-      try {
-        const targetGoal = updatedGoals.find(g => g.id === goalId);
-        await supabase
-          .from('savings_goals')
-          .update({ current_amount: targetGoal.currentAmount })
-          .eq('id', goalId);
-      } catch (err) {
-        console.error("Failed to update savings goal amount:", err);
-      }
-    }
-  }, [goals, userId]);
-
-  const handleDeleteSavingsGoal = React.useCallback(async (goalId) => {
-    if (!window.confirm("Are you sure you want to delete this savings goal?")) return;
-    const updatedGoals = goals.filter(g => g.id !== goalId);
-    setGoals(updatedGoals);
-    saveSavingsGoals(updatedGoals, userId);
-
-    if (userId) {
-      try {
-        await supabase.from('savings_goals').delete().eq('id', goalId);
-      } catch (err) {
-        console.error("Failed to delete savings goal:", err);
-      }
-    }
-  }, [goals, userId]);
-  const handleAddIncome = React.useCallback(async (newIncome) => {
-    const incomeWithId = {
-      ...newIncome,
-      id: 'inc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-      createdAt: new Date().toISOString()
-    };
-    const updatedIncome = [incomeWithId, ...incomeList];
-    setIncomeList(updatedIncome);
-    saveIncome(updatedIncome, user?.id);
-
-    if (user?.id) {
-      try {
-        await supabase.from('income').insert({
-          id: incomeWithId.id,
-          user_id: user.id,
-          source: incomeWithId.source,
-          amount: incomeWithId.amount,
-          date: incomeWithId.date,
-          notes: incomeWithId.notes
-        });
-      } catch (err) {
-        console.error("Failed to upload income:", err);
-      }
-    }
-  }, [incomeList, user]);
-
-  const handleDeleteIncome = React.useCallback(async (id) => {
-    if (!window.confirm("Delete this income record?")) return;
-    const updatedIncome = incomeList.filter(i => i.id !== id);
-    setIncomeList(updatedIncome);
-    saveIncome(updatedIncome, user?.id);
-
-    if (user?.id) {
-      try {
-        await supabase.from('income').delete().eq('id', id);
-      } catch (err) {
-        console.error("Failed to delete income:", err);
-      }
-    }
-  }, [incomeList, user]);
-
+  }, [userId, setExpenses, setPendingSyncs]);
 
   const handleSwipeOpen = React.useCallback((id) => {
     setSwipedItemId(id);
@@ -1325,6 +536,14 @@ export default function App() {
     });
   }, [expenses, chartPeriod]);
 
+  const onAddIncomeWrapped = (source, amount, date, notes) => handleAddIncome({ source, amount, date, notes }, supabase);
+  const onDeleteIncomeWrapped = (id) => handleDeleteIncome(id, supabase);
+  const onAddSavingsGoalWrapped = (name, targetAmt, deadline) => handleAddSavingsGoal(name, targetAmt, deadline, supabase);
+  const onAddGoalContributionWrapped = (goalId, amt) => handleAddGoalContribution(goalId, amt, supabase);
+  const onDeleteSavingsGoalWrapped = (goalId) => handleDeleteSavingsGoal(goalId, supabase);
+  const onLoadDemoDataWrapped = () => handleLoadDemoData(supabase);
+  const onClearDemoDataWrapped = () => handleClearDemoData(supabase);
+
   // Login Screen
   if (!user) {
     return (
@@ -1352,11 +571,11 @@ export default function App() {
 
       <header className="header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <img 
-            src={user.picture} 
-            alt="profile" 
+          <img
+            src={user.picture}
+            alt="profile"
             referrerPolicy="no-referrer"
-            style={{ width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer' }} 
+            style={{ width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer' }}
             onClick={() => {
               if (window.confirm("Do you want to sign out?")) {
                 handleSignOut();
@@ -1372,14 +591,14 @@ export default function App() {
                 syncing...
               </span>
             ) : (
-              <span 
+              <span
                 onClick={() => { if (pendingSyncs > 0) setShowQueueInspector(true); }}
-                style={{ 
-                  fontSize: '9px', 
-                  color: pendingSyncs > 0 ? 'var(--danger)' : 'var(--text-muted)', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '4px', 
+                style={{
+                  fontSize: '9px',
+                  color: pendingSyncs > 0 ? 'var(--danger)' : 'var(--text-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
                   fontWeight: pendingSyncs > 0 ? '600' : '400',
                   cursor: pendingSyncs > 0 ? 'pointer' : 'default'
                 }}
@@ -1393,9 +612,10 @@ export default function App() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <select 
-            value={currency} 
+          <select
+            value={currency}
             onChange={handleCurrencyChange}
+            title="Changing currency does not convert existing amounts"
             style={{
               background: 'var(--glass-bg)',
               border: '1px solid var(--glass-border)',
@@ -1439,6 +659,34 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* Desktop Section Tab Bar (mirrors mobile bottom nav) */}
+      <div className="desktop-tab-bar">
+        <button
+          onClick={() => setActiveTab('dashboard')}
+          className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
+        >
+          📊 Overview
+        </button>
+        <button
+          onClick={() => setActiveTab('expenses')}
+          className={`tab-btn ${activeTab === 'expenses' ? 'active' : ''}`}
+        >
+          💸 Expenses
+        </button>
+        <button
+          onClick={() => setActiveTab('planning')}
+          className={`tab-btn ${activeTab === 'planning' ? 'active' : ''}`}
+        >
+          🎯 Planning
+        </button>
+        <button
+          onClick={() => setActiveTab('analytics')}
+          className={`tab-btn ${activeTab === 'analytics' ? 'active' : ''}`}
+        >
+          💡 Analytics
+        </button>
+      </div>
 
       {/* Daily reminder banner */}
       {!hasLoggedToday && dailyReminder && (
@@ -1517,694 +765,109 @@ export default function App() {
 
       <main className="content">
         <div className="desktop-grid">
-          
-          {/* LEFT SIDEBAR (Budget, Analytics & Subscription Lists) */}
-          <div className={`left-column ${activeTab === 'dashboard' || activeTab === 'planning' || activeTab === 'analytics' ? 'show-mobile' : 'hide-mobile'}`} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* OVERVIEW SECTION */}
-            <div className={activeTab === 'dashboard' ? 'flex-column-gap' : 'hide-mobile'} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {/* Overall Budget Status */}
-              <div className="glass-card budget-summary">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Overall Limit</span>
-                <button 
-                  onClick={() => setActiveBudgetModal(true)}
-                  style={{
-                    background: 'var(--bg-tertiary)',
-                    border: '1px solid var(--glass-border)',
-                    color: 'var(--accent-primary)',
-                    cursor: 'pointer',
-                    fontSize: '10px',
-                    fontWeight: '600',
-                    padding: '3px 8px',
-                    borderRadius: '12px'
-                  }}
-                >
-                  Configure
-                </button>
-              </div>
 
-              <div className="budget-row" style={{ marginTop: '-4px' }}>
-                <span className="budget-amount">
-                  {currSymbol}{totalSpent.toFixed(2)} <span>/ {currSymbol}{budget.toFixed(2)}</span>
-                </span>
-              </div>
+          <DashboardSidebar
+            activeTab={activeTab}
+            currSymbol={currSymbol}
+            currency={currency}
+            totalSpent={totalSpent}
+            budget={budget}
+            budgetProgress={budgetProgress}
+            healthScore={healthScore}
+            expenses={expenses}
+            spentToday={spentToday}
+            spentThisWeek={spentThisWeek}
+            spentThisMonth={spentThisMonth}
+            safeDailyLimit={safeDailyLimit}
+            subscriptions={subscriptions}
+            totalSubscriptionCost={totalSubscriptionCost}
+            categoryBudgets={categoryBudgets}
+            getCategorySpending={getCategorySpending}
+            setActiveBudgetModal={setActiveBudgetModal}
+            goals={goals}
+            incomeList={incomeList}
+            onAddIncome={onAddIncomeWrapped}
+            onDeleteIncome={onDeleteIncomeWrapped}
+            onAddSavingsGoal={onAddSavingsGoalWrapped}
+            onAddGoalContribution={onAddGoalContributionWrapped}
+            onDeleteSavingsGoal={onDeleteSavingsGoalWrapped}
+            chartPeriod={chartPeriod}
+            setChartPeriod={setChartPeriod}
+            chartExpenses={chartExpenses}
+            categoryFilter={categoryFilter}
+            setCategoryFilter={setCategoryFilter}
+            fetchAiInsights={fetchAiInsights}
+            isAiInsightsLoading={isAiInsightsLoading}
+            aiInsights={aiInsights}
+            fetchAiForecast={fetchAiForecast}
+            isAiForecastLoading={isAiForecastLoading}
+            aiForecast={aiForecast}
+            handleExportCSV={handleExportCSV}
+            handleImportCSV={handleImportCSV}
+            handleExportPDF={handleExportPDF}
+            sendTestNotification={sendTestNotification}
+          />
 
-              <div className="progress-container">
-                <div 
-                  className={getProgressBarClass(budgetProgress)} 
-                  style={{ width: `${budgetProgress}%` }}
-                ></div>
-              </div>
-
-               <div className="stats-grid" style={{ marginBottom: '4px', gridTemplateColumns: 'repeat(3, 1fr)', display: 'grid' }}>
-                <div className="stat-item">
-                  <span className="stat-label">Remaining</span>
-                  <span className="stat-val" style={{ color: budget - totalSpent >= 0 ? 'var(--success)' : 'var(--danger)', fontSize: '13px' }}>
-                    {currSymbol}{(budget - totalSpent).toFixed(0)}
-                  </span>
-                </div>
-                <div className="stat-item" style={{ alignItems: 'center' }}>
-                  <span className="stat-label">Health Score</span>
-                  <span className="stat-val" style={{ 
-                    color: healthScore >= 85 ? 'var(--success)' : (healthScore >= 50 ? 'var(--warning)' : 'var(--danger)'),
-                    fontWeight: '700',
-                    fontSize: '13px'
-                  }}>
-                    {healthScore}%
-                  </span>
-                </div>
-                <div className="stat-item" style={{ alignItems: 'flex-end' }}>
-                  <span className="stat-label">Trans.</span>
-                  <span className="stat-val" style={{ fontSize: '13px' }}>{expenses.length}</span>
-                </div>
-              </div>
-
-              {/* Quick Period Overviews (Daily, Weekly, Monthly) */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', padding: '12px 0', borderTop: '1px solid var(--glass-border)', borderBottom: '1px solid var(--glass-border)', margin: '4px 0' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.5px' }}>Today</span>
-                  <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>{currSymbol}{spentToday.toFixed(2)}</span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'center' }}>
-                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.5px' }}>This Week</span>
-                  <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>{currSymbol}{spentThisWeek.toFixed(0)}</span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'flex-end' }}>
-                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.5px' }}>This Month</span>
-                  <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>{currSymbol}{spentThisMonth.toFixed(0)}</span>
-                </div>
-              </div>
-
-              {/* Safe Daily Spending Limit */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', fontSize: '12px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>💡 Safe Daily Spending Limit</span>
-                <span style={{ fontWeight: '600', color: 'var(--accent-primary)' }}>
-                  {currSymbol}{safeDailyLimit.toFixed(2)} / day
-                </span>
-              </div>
-
-            </div>
-
-            {/* Smart Subscriptions / Recurring Bills Card */}
-            {subscriptions.length > 0 && (
-              <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-secondary)' }}>
-                      🔁 Fixed Subscriptions
-                    </h3>
-                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                      Consumes {(budget > 0 ? (totalSubscriptionCost / budget) * 100 : 0).toFixed(1)}% of budget
-                    </span>
-                  </div>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--accent-primary)' }}>
-                    {currSymbol}{totalSubscriptionCost.toFixed(2)}/mo
-                  </span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '120px', overflowY: 'auto' }}>
-                  {subscriptions.map(sub => {
-                    const cat = CATEGORIES[sub.category] || CATEGORIES.Others;
-                    const countdown = getSubscriptionCountdown(sub.billingDay);
-                    return (
-                      <div key={sub.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                          <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>{cat.icon} {sub.description}</span>
-                          {countdown && (
-                            <span style={{
-                              fontSize: '9px',
-                              color: countdown.includes('today') || countdown.includes('tomorrow') ? 'var(--danger)' : 'var(--text-muted)',
-                              fontWeight: '600'
-                            }}>
-                              📅 Day {sub.billingDay} ({countdown})
-                            </span>
-                          )}
-                        </div>
-                        <span style={{ color: 'var(--text-muted)' }}>-{currSymbol}{sub.amount.toFixed(2)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Category Budgets Warnings list */}
-            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-secondary)' }}>
-                  Category Budgets
-                </h3>
-                {Object.keys(categoryBudgets).length === 0 && (
-                  <button 
-                    onClick={() => setActiveBudgetModal(true)}
-                    style={{
-                      background: 'var(--accent-glow)',
-                      border: '1px solid var(--accent-primary)',
-                      color: 'var(--accent-primary)',
-                      padding: '4px 10px',
-                      borderRadius: '20px',
-                      cursor: 'pointer',
-                      fontSize: '11px',
-                      fontWeight: '600'
-                    }}
-                  >
-                    + Set limits
-                  </button>
-                )}
-              </div>
-              
-              {Object.keys(categoryBudgets).length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {Object.entries(categoryBudgets).map(([catKey, catLimit]) => {
-                    const catSpent = getCategorySpending(catKey);
-                    const catInfo = CATEGORIES[catKey] || CATEGORIES.Others;
-                    const catProg = Math.min((catSpent / catLimit) * 100, 100);
-
-                    return (
-                      <div key={catKey} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                          <span>{catInfo.icon} {catInfo.name}</span>
-                          <span style={{ fontWeight: '500' }}>
-                            {currSymbol}{catSpent.toFixed(0)} / {currSymbol}{catLimit.toFixed(0)}
-                          </span>
-                        </div>
-                        <div className="progress-container" style={{ height: '5px' }}>
-                          <div 
-                            className={getProgressBarClass(catProg)} 
-                            style={{ width: `${catProg}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                  No category limits set. Set individual spending limits on Food, Dining, Shopping, etc., to monitor them closely.
-                </p>
-              )}
-            </div>
-          </div>
-
-            {/* PLANNING SECTION */}
-            <div className={activeTab === 'planning' ? 'flex-column-gap' : 'hide-mobile'} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {/* Budget Surplus Rollover Widget */}
-              {budget > 0 && totalSpent < budget && (
-                <div className="glass-card" style={{ background: 'rgba(52, 211, 153, 0.08)', border: '1px solid rgba(52, 211, 153, 0.25)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--success)' }}>🎉 Budget Surplus Detected!</span>
-                    <span style={{ fontSize: '12px', fontWeight: '600' }}>{currSymbol}{(budget - totalSpent).toFixed(0)} saved</span>
-                  </div>
-                  <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.4' }}>
-                    You spent less than your monthly limit! Rollover this leftover surplus directly into your active Savings Goals.
-                  </p>
-                  {goals.length > 0 ? (
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                      <select 
-                        id="surplus-target-goal"
-                        className="input-field" 
-                        style={{ padding: '4px 8px', fontSize: '11px', flex: 1 }}
-                      >
-                        {goals.map(g => (
-                          <option key={g.id} value={g.id}>{g.name} ({currSymbol}{g.currentAmount}/{currSymbol}{g.targetAmount})</option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => {
-                          const selectEl = document.getElementById('surplus-target-goal');
-                          if (selectEl && selectEl.value) {
-                            handleAddGoalContribution(selectEl.value, budget - totalSpent);
-                            alert("Successfully allocated surplus to your savings goal!");
-                          }
-                        }}
-                        style={{
-                          background: 'var(--success)',
-                          border: 'none',
-                          color: 'white',
-                          padding: '4px 12px',
-                          borderRadius: '4px',
-                          fontSize: '11px',
-                          fontWeight: '600',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Allocate All
-                      </button>
-                    </div>
-                  ) : (
-                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Create a savings goal below to allocate this surplus.</span>
-                  )}
-                </div>
-              )}
-
-              {/* Monthly Income Tracker Card */}
-              <IncomeCard
-                incomeList={incomeList}
-                currencySymbol={currSymbol}
-                onAddIncome={handleAddIncome}
-                onDeleteIncome={handleDeleteIncome}
-              />
-
-              {/* Savings Goals Target Tracker */}
-              <SavingsGoalsCard
-                goals={goals}
-                currencySymbol={currSymbol}
-                onAddGoal={handleAddSavingsGoal}
-                onAddContribution={handleAddGoalContribution}
-                onDeleteGoal={handleDeleteSavingsGoal}
-              />
-            </div>
-
-            {/* ANALYTICS SECTION */}
-            <div className={activeTab === 'analytics' ? 'flex-column-gap' : 'hide-mobile'} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {/* Distribution chart & AI Savings Advisor */}
-            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-secondary)' }}>
-                  Distribution ({currency})
-                </h3>
-                <button
-                  onClick={fetchAiInsights}
-                  disabled={isAiInsightsLoading}
-                  style={{
-                    background: 'var(--accent-glow)',
-                    border: '1px solid var(--accent-primary)',
-                    color: 'var(--accent-primary)',
-                    padding: '4px 10px',
-                    borderRadius: '20px',
-                    cursor: 'pointer',
-                    fontSize: '11px',
-                    fontWeight: '600'
-                  }}
-                >
-                  {isAiInsightsLoading ? '💡 Analyzing...' : '💡 AI Insights'}
-                </button>
-              </div>
-
-              {/* Period Switcher Tabs */}
-              <div style={{ display: 'flex', gap: '6px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px', flexWrap: 'wrap' }}>
-                {['today', 'week', 'month', 'all'].map(p => (
-                  <button
-                    key={p}
-                    onClick={() => setChartPeriod(p)}
-                    style={{
-                      background: chartPeriod === p ? 'var(--accent-glow)' : 'none',
-                      border: '1px solid',
-                      borderColor: chartPeriod === p ? 'var(--accent-primary)' : 'var(--glass-border)',
-                      color: chartPeriod === p ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                      padding: '4px 10px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                      fontSize: '10px',
-                      fontWeight: '600',
-                      textTransform: 'capitalize',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    {p === 'all' ? 'All Time' : p}
-                  </button>
-                ))}
-              </div>
-
-              <AnalyticsCharts 
-                expenses={chartExpenses} 
-                currencySymbol={currSymbol} 
-                selectedCategory={categoryFilter}
-                onSelectCategory={setCategoryFilter}
-              />
-
-              {/* AI Insights Display */}
-              {aiInsights && (
-                <div style={{ 
-                  background: 'rgba(255,255,255,0.02)', 
-                  border: '1px solid var(--glass-border)', 
-                  borderRadius: '8px', 
-                  padding: '12px',
-                  fontSize: '12px',
-                  color: 'var(--text-secondary)',
-                  lineHeight: '1.6',
-                  maxHeight: '130px',
-                  overflowY: 'auto'
-                }}>
-                  <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: '6px' }}>
-                    Gemini Financial Advice:
-                  </strong>
-                  <div style={{ whiteSpace: 'pre-wrap' }}>{aiInsights}</div>
-                </div>
-              )}
-
-              {/* AI Forecast & Projections */}
-              <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>🔮 AI Spending Forecast</span>
-                  <button
-                    onClick={fetchAiForecast}
-                    disabled={isAiForecastLoading}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--accent-primary)',
-                      cursor: 'pointer',
-                      fontSize: '11px',
-                      fontWeight: '600',
-                      padding: 0
-                    }}
-                  >
-                    {isAiForecastLoading ? 'Predicting...' : (aiForecast ? '🔄 Refresh' : 'Get Projection')}
-                  </button>
-                </div>
-                
-                {aiForecast && (
-                  <div style={{ 
-                    background: 'rgba(255,255,255,0.02)', 
-                    border: '1px solid var(--glass-border)', 
-                    borderRadius: '8px', 
-                    padding: '10px',
-                    fontSize: '11px',
-                    color: 'var(--text-secondary)',
-                    lineHeight: '1.5',
-                    maxHeight: '110px',
-                    overflowY: 'auto'
-                  }}>
-                    <div style={{ whiteSpace: 'pre-wrap' }}>{aiForecast}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Backup Action card */}
-          <div className={activeTab === 'dashboard' ? 'flex-column-gap' : 'hide-mobile'} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
-                <button 
-                  onClick={handleExportCSV}
-                  style={{
-                    flex: 1,
-                    background: 'var(--bg-tertiary)',
-                    border: '1px solid var(--glass-border)',
-                    color: 'var(--text-primary)',
-                    padding: '10px',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontSize: '11px',
-                    fontWeight: '600'
-                  }}
-                >
-                  📥 Export CSV
-                </button>
-                <label 
-                  style={{
-                    flex: 1,
-                    background: 'var(--bg-tertiary)',
-                    border: '1px solid var(--glass-border)',
-                    color: 'var(--text-primary)',
-                    padding: '10px',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    textAlign: 'center',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  📤 Import CSV
-                  <input 
-                    type="file" 
-                    accept=".csv" 
-                    onChange={handleImportCSV} 
-                    style={{ display: 'none' }} 
-                  />
-                </label>
-              </div>
-
-              <button 
-                onClick={() => window.print()}
-                style={{
-                  width: '100%',
-                  background: 'var(--bg-tertiary)',
-                  border: '1px solid var(--glass-border)',
-                  color: 'var(--text-primary)',
-                  padding: '10px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  fontWeight: '600'
-                }}
-              >
-                📄 Export PDF Report
-              </button>
-
-              <button
-                onClick={sendTestNotification}
-                style={{
-                  width: '100%',
-                  background: 'var(--bg-tertiary)',
-                  border: '1px solid var(--glass-border)',
-                  color: 'var(--accent-primary)',
-                  padding: '10px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  fontWeight: '600'
-                }}
-              >
-                🔔 Test Push Notification
-              </button>
-            </div>
-          </div>
-        </div>
-
-          {/* RIGHT SIDEBAR */}
-          <div className={`right-column ${activeTab === 'expenses' ? 'show-mobile' : 'hide-mobile'}`} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div>
-              <div className="section-title" style={{ marginBottom: '12px' }}>
-                <span>Expenses List</span>
-                <button 
-                  onClick={() => {
-                    setEditingExpense(null);
-                    setActiveForm(true);
-                  }}
-                  style={{
-                    background: 'linear-gradient(135deg, #06b6d4, #0891b2)',
-                    border: 'none',
-                    color: '#030712',
-                    padding: '6px 14px',
-                    borderRadius: '20px',
-                    cursor: 'pointer',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    display: 'none'
-                  }}
-                  className="desktop-add-btn"
-                >
-                  + Add Expense
-                </button>
-                <style>{`
-                  @media (min-width: 768px) {
-                    .desktop-add-btn { display: block !important; }
-                  }
-                `}</style>
-              </div>
-
-              {/* Search & Custom Advanced Filters */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
-                <input
-                  type="text"
-                  className="input-field"
-                  placeholder="Search transactions..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{ padding: '10px 14px', fontSize: '14px' }}
-                />
-
-                {/* Sorter and Date Presets */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                    className="input-field"
-                    style={{ padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}
-                  >
-                    {Object.entries(SORT_OPTIONS).map(([key, label]) => (
-                      <option key={key} value={key} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={dateFilter}
-                    onChange={(e) => setDateFilter(e.target.value)}
-                    className="input-field"
-                    style={{ padding: '8px 12px', fontSize: '12px', cursor: 'pointer' }}
-                  >
-                    {Object.entries(DATE_FILTERS).map(([key, label]) => (
-                      <option key={key} value={key} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Custom Date Bounds */}
-                {dateFilter === 'custom' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="input-field"
-                      style={{ padding: '6px 10px', fontSize: '11px' }}
-                    />
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="input-field"
-                      style={{ padding: '6px 10px', fontSize: '11px' }}
-                    />
-                  </div>
-                )}
-                
-                {/* Category filters */}
-                <div className="filter-tabs-container" style={{ marginTop: '4px' }}>
-                  <button
-                    onClick={() => setCategoryFilter('All')}
-                    className={`filter-tab-btn ${categoryFilter === 'All' ? 'active' : ''}`}
-                  >
-                    All
-                  </button>
-                  {Object.entries(CATEGORIES).map(([key, cat]) => (
-                    <button
-                      key={key}
-                      onClick={() => setCategoryFilter(key)}
-                      className={`filter-tab-btn ${categoryFilter === key ? 'active' : ''}`}
-                    >
-                      {cat.icon} {cat.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {filteredExpenses.length === 0 ? (
-                <div className="empty-state glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '30px 20px', alignItems: 'center' }}>
-                  <div className="icon" style={{ fontSize: '32px' }}>💸</div>
-                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    {expenses.length === 0 ? "You haven't logged any expenses yet." : "No transactions match your filters."}
-                  </p>
-                  {expenses.length === 0 && (
-                    <button
-                      onClick={handleLoadDemoData}
-                      style={{
-                        background: 'var(--accent-glow)',
-                        border: '1px solid var(--accent-primary)',
-                        color: 'var(--accent-primary)',
-                        padding: '6px 16px',
-                        borderRadius: '20px',
-                        fontWeight: '600',
-                        fontSize: '12px',
-                        cursor: 'pointer',
-                        marginTop: '4px'
-                      }}
-                    >
-                      🧪 Load Sample Demo Data
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <>
-                  {hasDemoData && (
-                    <div style={{
-                      background: 'rgba(251, 146, 60, 0.08)',
-                      border: '1px solid rgba(251, 146, 60, 0.3)',
-                      borderRadius: '8px',
-                      padding: '8px 12px',
-                      marginBottom: '12px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      fontSize: '11px',
-                      color: 'var(--text-secondary)'
-                    }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span>🧪</span> <span>Currently showing sample demo data.</span>
-                      </span>
-                      <button
-                        onClick={handleClearDemoData}
-                        style={{
-                          background: 'rgba(244, 63, 94, 0.1)',
-                          border: '1px solid rgba(244, 63, 94, 0.25)',
-                          color: 'var(--danger)',
-                          fontWeight: '600',
-                          cursor: 'pointer',
-                          padding: '3px 8px',
-                          borderRadius: '4px',
-                          fontSize: '10px'
-                        }}
-                      >
-                        Clear Demo Data
-                      </button>
-                    </div>
-                  )}
-                  <div className="expense-list">
-                  {filteredExpenses.map((exp) => {
-                    const cat = CATEGORIES[exp.category] || CATEGORIES.Others;
-                    const catLimit = categoryBudgets[exp.category];
-                    const catSpent = getCategorySpending(exp.category);
-                    const isOverCategoryBudget = catLimit && catLimit > 0 && catSpent > catLimit;
-
-                    return (
-                      <ExpenseListItem
-                        key={exp.id}
-                        expense={exp}
-                        currencySymbol={currSymbol}
-                        categoryInfo={cat}
-                        isOverCategoryBudget={isOverCategoryBudget}
-                        isSwiped={swipedItemId === exp.id}
-                        onSwipeOpen={handleSwipeOpen}
-                        onSwipeClose={handleSwipeClose}
-                        onClick={handleListItemClick}
-                        onDelete={handleListItemDelete}
-                        searchQuery={searchQuery}
-                      />
-                    );
-                  })}
-                </div>
-              </>
-            )}
-            </div>
-          </div>
+          <ExpensesPanel
+            activeTab={activeTab}
+            onAddExpenseClick={() => { setEditingExpense(null); setActiveForm(true); }}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            sortBy={sortBy}
+            setSortBy={setSortBy}
+            sortOptions={SORT_OPTIONS}
+            dateFilter={dateFilter}
+            setDateFilter={setDateFilter}
+            dateFilters={DATE_FILTERS}
+            startDate={startDate}
+            setStartDate={setStartDate}
+            endDate={endDate}
+            setEndDate={setEndDate}
+            categoryFilter={categoryFilter}
+            setCategoryFilter={setCategoryFilter}
+            filteredExpenses={filteredExpenses}
+            expenses={expenses}
+            onLoadDemoData={onLoadDemoDataWrapped}
+            hasDemoData={hasDemoData}
+            onClearDemoData={onClearDemoDataWrapped}
+            categoryBudgets={categoryBudgets}
+            getCategorySpending={getCategorySpending}
+            currSymbol={currSymbol}
+            swipedItemId={swipedItemId}
+            handleSwipeOpen={handleSwipeOpen}
+            handleSwipeClose={handleSwipeClose}
+            handleListItemClick={handleListItemClick}
+            handleListItemDelete={handleListItemDelete}
+          />
 
         </div>
       </main>
 
       {/* Bottom Navigation Bar (Mobile Only) */}
       <div className="mobile-nav-bar">
-        <button 
-          onClick={() => setActiveTab('dashboard')} 
+        <button
+          onClick={() => setActiveTab('dashboard')}
           className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
         >
           <span className="icon">📊</span>
           <span>Overview</span>
         </button>
-        <button 
-          onClick={() => setActiveTab('expenses')} 
+        <button
+          onClick={() => setActiveTab('expenses')}
           className={`nav-item ${activeTab === 'expenses' ? 'active' : ''}`}
         >
           <span className="icon">💸</span>
           <span>Expenses</span>
         </button>
-        <button 
-          onClick={() => setActiveTab('planning')} 
+        <button
+          onClick={() => setActiveTab('planning')}
           className={`nav-item ${activeTab === 'planning' ? 'active' : ''}`}
         >
           <span className="icon">🎯</span>
           <span>Planning</span>
         </button>
-        <button 
-          onClick={() => setActiveTab('analytics')} 
+        <button
+          onClick={() => setActiveTab('analytics')}
           className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}
         >
           <span className="icon">💡</span>
@@ -2296,6 +959,47 @@ export default function App() {
           whiteSpace: 'nowrap'
         }}>
           {toastMessage}
+        </div>
+      )}
+
+      {/* Service Worker Update Available Toast */}
+      {updateAvailable && (
+        <div style={{
+          position: 'fixed',
+          bottom: '80px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(18, 18, 20, 0.95)',
+          border: '1px solid var(--glass-border)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          borderRadius: '24px',
+          padding: '10px 12px 10px 20px',
+          color: 'var(--text-primary)',
+          fontSize: '11px',
+          fontWeight: '600',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          textAlign: 'center',
+          whiteSpace: 'nowrap'
+        }}>
+          🚀 New version available
+          <button
+            onClick={applyUpdate}
+            style={{
+              background: 'var(--accent-primary)',
+              border: 'none',
+              color: '#030712',
+              padding: '5px 12px',
+              borderRadius: '16px',
+              cursor: 'pointer',
+              fontSize: '11px',
+              fontWeight: '700'
+            }}
+          >
+            Refresh
+          </button>
         </div>
       )}
     </div>

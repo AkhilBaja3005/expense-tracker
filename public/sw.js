@@ -1,6 +1,6 @@
 // Service Worker for handling PWA static asset caching and Web Push notifications
 
-const CACHE_NAME = 'expenser-cache-v2.2.0';
+const CACHE_NAME = 'expenser-cache-v2.3.0';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',

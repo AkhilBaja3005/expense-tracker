@@ -136,14 +136,26 @@ export function deleteFromSyncQueue(timestamp) {
   }
 }
 
-function addToQueue(action, type, payload, userId) {
+const MAX_SYNC_QUEUE_SIZE = 500;
+
+export function addToQueue(action, type, payload, userId) {
   const queue = getSyncQueue();
   queue.push({ action, type, payload, userId, timestamp: Date.now() });
+
+  if (queue.length > MAX_SYNC_QUEUE_SIZE) {
+    console.warn(`Sync queue exceeded ${MAX_SYNC_QUEUE_SIZE} entries; dropping oldest pending upserts to bound local storage growth.`);
+    while (queue.length > MAX_SYNC_QUEUE_SIZE) {
+      const idx = queue.findIndex(t => t.action === 'upsert');
+      if (idx === -1) break;
+      queue.splice(idx, 1);
+    }
+  }
+
   saveSyncQueue(queue);
 }
 
 // Compact and deduplicate sync queue to fold redundant operations
-function deduplicateQueue(queue) {
+export function deduplicateQueue(queue) {
   const expenseMap = new Map(); // id -> latest task
   let settingsTask = null; // latest settings task
 
@@ -375,12 +387,20 @@ export async function syncFromCloud(userId, onSyncDone) {
   }
 }
 
+function parseValidAmount(rawAmount) {
+  const amount = parseFloat(rawAmount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('Expense amount must be a positive number');
+  }
+  return amount;
+}
+
 export async function addExpense(expense, userId) {
   const now = new Date().toISOString();
   const newExpense = {
     ...expense,
     id: 'exp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-    amount: parseFloat(expense.amount) || 0,
+    amount: parseValidAmount(expense.amount),
     dateAdded: now,
     dateModified: now
   };
@@ -421,7 +441,7 @@ export async function updateExpense(id, updatedData, userId) {
   const updatedExpense = {
     ...localExpenses[index],
     ...updatedData,
-    amount: parseFloat(updatedData.amount) || 0,
+    amount: parseValidAmount(updatedData.amount),
     dateModified: now
   };
 

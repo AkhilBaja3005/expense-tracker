@@ -18,7 +18,12 @@ function SavingsGoalsCard({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!name.trim() || !targetAmount) return;
-    onAddGoal(name, parseFloat(targetAmount), deadline);
+    const parsedTarget = parseFloat(targetAmount);
+    if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) {
+      alert('Please enter a valid target amount greater than 0.');
+      return;
+    }
+    onAddGoal(name, parsedTarget, deadline);
     setName('');
     setTargetAmount('');
     setDeadline('');
@@ -27,7 +32,12 @@ function SavingsGoalsCard({
 
   const handleAllocateSubmit = (goalId) => {
     if (!allocateAmt) return;
-    onAddContribution(goalId, parseFloat(allocateAmt));
+    const parsedAmt = parseFloat(allocateAmt);
+    if (!Number.isFinite(parsedAmt) || parsedAmt <= 0) {
+      alert('Please enter a valid amount greater than 0.');
+      return;
+    }
+    onAddContribution(goalId, parsedAmt);
     setAllocateAmt('');
     setActiveAllocateId(null);
   };
@@ -69,6 +79,8 @@ function SavingsGoalsCard({
           <div style={{ display: 'flex', gap: '6px' }}>
             <input
               type="number"
+              min="0.01"
+              step="0.01"
               placeholder={`Target Amount (${currencySymbol})`}
               className="input-field"
               value={targetAmount}
@@ -137,6 +149,8 @@ function SavingsGoalsCard({
                   <div style={{ display: 'flex', gap: '4px', marginTop: '6px' }}>
                     <input
                       type="number"
+                      min="0.01"
+                      step="0.01"
                       placeholder="Amt to add"
                       className="input-field"
                       value={allocateAmt}
