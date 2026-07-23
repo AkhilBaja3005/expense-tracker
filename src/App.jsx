@@ -1230,57 +1230,6 @@ export default function App() {
     }
   }, [incomeList, user]);
 
-  const drawSvgGraph = () => {
-    if (budget === 0) return null;
-    const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-    const currentDay = new Date().getDate();
-    
-    const currentMonthStr = new Date().toISOString().slice(0,7);
-    const monthlyExpenses = expenses.filter(e => e.date.startsWith(currentMonthStr));
-    
-    let cumulative = 0;
-    const pacingData = Array.from({ length: daysInMonth }, (_, i) => {
-      const dayStr = `${currentMonthStr}-${String(i + 1).padStart(2, '0')}`;
-      const daySpent = monthlyExpenses
-        .filter(e => e.date === dayStr)
-        .reduce((sum, e) => sum + e.amount, 0);
-      
-      if (i < currentDay) {
-        cumulative += daySpent;
-        return cumulative;
-      }
-      return null;
-    });
-
-    const maxPacing = Math.max(budget, cumulative) || 1;
-    const height = 60;
-    const width = 100;
-
-    const points = pacingData
-      .map((val, i) => {
-        if (val === null) return null;
-        const x = (i / (daysInMonth - 1)) * width;
-        const y = height - (val / maxPacing) * height;
-        return `${x},${y}`;
-      })
-      .filter(Boolean)
-      .join(' ');
-
-    const idealPoints = `0,${height} ${width},0`;
-
-    return (
-      <div style={{ marginTop: '12px' }}>
-        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Cumulative Pacing</span>
-        <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: '60px', overflow: 'visible', marginTop: '4px' }}>
-          <polyline points={idealPoints} fill="none" stroke="rgba(255, 255, 255, 0.2)" strokeWidth="1" strokeDasharray="4,4" />
-          <polyline points={points} fill="none" stroke="var(--accent-primary)" strokeWidth="2" />
-          {points && (
-            <polygon points={`0,${height} ${points} ${((currentDay-1) / (daysInMonth - 1)) * width},${height}`} fill="rgba(34, 211, 238, 0.1)" />
-          )}
-        </svg>
-      </div>
-    );
-  };
 
   const handleSwipeOpen = React.useCallback((id) => {
     setSwipedItemId(id);
@@ -1654,7 +1603,6 @@ export default function App() {
                 </span>
               </div>
 
-              {drawSvgGraph()}
             </div>
 
             {/* Smart Subscriptions / Recurring Bills Card */}
