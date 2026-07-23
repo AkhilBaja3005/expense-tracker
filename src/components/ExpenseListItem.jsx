@@ -1,5 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 
+const highlightText = (text, highlight) => {
+  if (!highlight || !highlight.trim()) return text;
+  const parts = text.split(new RegExp(`(${highlight.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
+  return (
+    <span>
+      {parts.map((part, i) => 
+        part.toLowerCase() === highlight.toLowerCase() 
+          ? <mark key={i} className="search-highlight" style={{ background: 'rgba(34, 211, 238, 0.35)', color: 'white', borderRadius: '2px', padding: '0 2px' }}>{part}</mark> 
+          : part
+      )}
+    </span>
+  );
+};
+
 function ExpenseListItem({
   expense,
   currencySymbol,
@@ -9,7 +23,8 @@ function ExpenseListItem({
   onSwipeOpen,
   onSwipeClose,
   onClick,
-  onDelete
+  onDelete,
+  searchQuery = ''
 }) {
   const [localSwipeX, setLocalSwipeX] = useState(0);
   const touchStartX = useRef(0);
@@ -102,7 +117,7 @@ function ExpenseListItem({
             </div>
             <div className="expense-info">
               <span className="expense-desc" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {expense.description}
+                {highlightText(expense.description, searchQuery)}
                 {isOverCategoryBudget && (
                   <span
                     style={{

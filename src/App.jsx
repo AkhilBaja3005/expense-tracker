@@ -13,7 +13,10 @@ import {
   syncOfflineQueue,
   getPendingSyncCount,
   getSyncQueue,
-  deleteFromSyncQueue
+  deleteFromSyncQueue,
+  saveExpenses,
+  getSavingsGoals,
+  saveSavingsGoals
 } from './utils/storage';
 import { CATEGORIES } from './utils/categorizer';
 import ExpenseForm from './components/ExpenseForm';
@@ -59,10 +62,25 @@ const getSubscriptionCountdown = (billingDay) => {
   }
   return `due in ${diffDays} days`;
 };
+
+const highlightText = (text, highlight) => {
+  if (!highlight || !highlight.trim()) return text;
+  const parts = text.split(new RegExp(`(${highlight.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
+  return (
+    <span>
+      {parts.map((part, i) => 
+        part.toLowerCase() === highlight.toLowerCase() 
+          ? <mark key={i} className="search-highlight" style={{ background: 'rgba(34, 211, 238, 0.35)', color: 'white', borderRadius: '2px', padding: '0 2px' }}>{part}</mark> 
+          : part
+      )}
+    </span>
+  );
+};
 import AnalyticsCharts from './components/AnalyticsCharts';
 import BudgetModal from './components/BudgetModal';
 import OfflineQueueModal from './components/OfflineQueueModal';
 import ExpenseListItem from './components/ExpenseListItem';
+import SavingsGoalsCard from './components/SavingsGoalsCard';
 
 const CURRENCIES = {
   USD: { symbol: '$', name: 'USD ($)' },
@@ -121,6 +139,13 @@ export default function App() {
   // PWA Install Banner states
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
+
+  // AI Forecasting Projections states
+  const [aiForecast, setAiForecast] = useState('');
+  const [isAiForecastLoading, setIsAiForecastLoading] = useState(false);
+
+  // Savings Goals states
+  const [goals, setGoals] = useState([]);
   
   // Sorters, date filters, and reminders state
   const [searchQuery, setSearchQuery] = useState('');
@@ -250,6 +275,7 @@ export default function App() {
       setExpenses(getExpenses(userId));
       setBudget(getBudget(userId));
       setCategoryBudgets(getCategoryBudgets(userId));
+      setGoals(getSavingsGoals(userId));
       const savedCurrency = localStorage.getItem(`expenser_currency_${userId}`);
       if (savedCurrency && CURRENCIES[savedCurrency]) {
         setCurrency(savedCurrency);
@@ -285,6 +311,7 @@ export default function App() {
     setExpenses(getExpenses(userId));
     setBudget(getBudget(userId));
     setCategoryBudgets(getCategoryBudgets(userId));
+    setGoals(getSavingsGoals(userId));
     setPendingSyncs(getPendingSyncCount());
 
     const savedCurrency = localStorage.getItem(`expenser_currency_${userId}`);
@@ -775,6 +802,71 @@ export default function App() {
     setIsAiInsightsLoading(false);
   };
 
+  const fetchAiForecast = async () => {
+    setIsAiForecastLoading(true);
+    setAiForecast('');
+
+    // Calculate category totals
+    const categoryTotals = {};
+    expenses.forEach(e => {
+      categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount;
+    });
+
+    // Find highest category
+    let highestCat = 'Others';
+    let highestAmt = 0;
+    Object.entries(categoryTotals).forEach(([cat, amt]) => {
+      if (amt > highestAmt) {
+        highestAmt = amt;
+        highestCat = CATEGORIES[cat]?.name || cat;
+      }
+    });
+
+    if (isOffline) {
+      const projectedSpent = totalSpent * 1.05;
+      const fallbackForecast = `🔮 Projected next month's spending: ${currSymbol}${projectedSpent.toFixed(2)} (Based on current spent of ${currSymbol}${totalSpent.toFixed(2)}).\n` +
+        `• Category Warning: Your highest spending category is ${highestCat}. Expect this to remain your primary cost area next month.\n` +
+        `• Tip: Pause unused subscriptions to save up to ${currSymbol}${totalSubscriptionCost.toFixed(2)} monthly.`;
+      setAiForecast(fallbackForecast);
+      setIsAiForecastLoading(false);
+      return;
+    }
+
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) throw new Error("API Key missing");
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `Analyze these expense details:
+              - Overall Monthly Budget: ${currSymbol}${budget}
+              - Total Spent so far: ${currSymbol}${totalSpent}
+              - Recurring Bills Total: ${currSymbol}${totalSubscriptionCost}
+              - Spending Category Breakdown: ${JSON.stringify(categoryTotals)}
+              Predict next month's spending projection in clean text. Provide a projected total cost, a brief prediction explanation, and 2 predictive rules to keep costs lower next month. Keep it short and actionable.`
+            }]
+          }]
+        })
+      });
+
+      if (!response.ok) throw new Error('Gemini API call failed');
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error('Empty response');
+      setAiForecast(text.trim());
+    } catch (err) {
+      console.error('Failed to load AI Forecast:', err);
+      const projectedSpent = totalSpent * 1.05;
+      setAiForecast(`🔮 Projection: ${currSymbol}${projectedSpent.toFixed(2)}\nAn error occurred loading the cloud AI forecast. Try again online.`);
+    } finally {
+      setIsAiForecastLoading(false);
+    }
+  };
+
   const getProgressBarClass = (prog) => {
     if (prog >= 90) return 'progress-bar danger';
     if (prog >= 75) return 'progress-bar warning';
@@ -856,7 +948,186 @@ export default function App() {
       await saveCloudSettings(userId, newBudget, currency, newCatBudgets);
     }
   }, [userId, currency]);
+  const handleResetCache = React.useCallback(async () => {
+    if (!userId) return;
+    setIsSyncing(true);
+    try {
+      localStorage.removeItem(`expenser_expenses_${userId}`);
+      localStorage.removeItem(`expenser_budget_${userId}`);
+      localStorage.removeItem(`expenser_cat_budgets_${userId}`);
+      localStorage.removeItem('expenser_sync_queue');
+      
+      await syncFromCloud(userId, () => {
+        window.location.reload();
+      });
+    } catch (err) {
+      console.error('Failed to reset system cache:', err);
+      alert('Failed to reset system cache: ' + err.message);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [userId]);
 
+  const handleLoadDemoData = React.useCallback(async () => {
+    const demoExpenses = [
+      {
+        id: crypto.randomUUID(),
+        description: 'Starbucks Coffee',
+        amount: 8.50,
+        category: 'Food',
+        date: new Date().toISOString().split('T')[0],
+        notes: 'Morning coffee',
+        dateAdded: new Date().toISOString(),
+        dateModified: new Date().toISOString()
+      },
+      {
+        id: crypto.randomUUID(),
+        description: 'Uber Ride',
+        amount: 18.20,
+        category: 'Transport',
+        date: new Date().toISOString().split('T')[0],
+        notes: 'Office ride',
+        dateAdded: new Date().toISOString(),
+        dateModified: new Date().toISOString()
+      },
+      {
+        id: crypto.randomUUID(),
+        description: 'Netflix subscription',
+        amount: 15.99,
+        category: 'Bills',
+        date: new Date().toISOString().split('T')[0],
+        notes: 'Monthly streaming bill',
+        isSubscription: true,
+        billingDay: 15,
+        dateAdded: new Date().toISOString(),
+        dateModified: new Date().toISOString()
+      },
+      {
+        id: crypto.randomUUID(),
+        description: 'Weekly Groceries Store',
+        amount: 72.40,
+        category: 'Food',
+        date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        notes: 'Whole Foods purchase',
+        dateAdded: new Date().toISOString(),
+        dateModified: new Date().toISOString()
+      },
+      {
+        id: crypto.randomUUID(),
+        description: 'Amazon shopping - Jacket',
+        amount: 54.00,
+        category: 'Shopping',
+        date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        notes: 'Winter jacket',
+        dateAdded: new Date().toISOString(),
+        dateModified: new Date().toISOString()
+      },
+      {
+        id: crypto.randomUUID(),
+        description: 'Cinema Movie Ticket',
+        amount: 12.50,
+        category: 'Entertainment',
+        date: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        notes: 'Evening movie',
+        dateAdded: new Date().toISOString(),
+        dateModified: new Date().toISOString()
+      }
+    ];
+
+    saveExpenses(demoExpenses, userId);
+    setExpenses(demoExpenses);
+    
+    if (userId) {
+      setIsSyncing(true);
+      try {
+        const formattedDemo = demoExpenses.map(e => ({
+          id: e.id,
+          user_id: userId,
+          description: e.description,
+          amount: e.amount,
+          category: e.category,
+          date: e.date,
+          notes: e.notes,
+          date_added: e.dateAdded,
+          date_modified: e.dateModified,
+          is_subscription: !!e.isSubscription,
+          billing_day: e.billingDay
+        }));
+        await supabase.from('expenses').upsert(formattedDemo);
+      } catch (err) {
+        console.error('Failed to upload demo data to cloud:', err);
+      } finally {
+        setIsSyncing(false);
+      }
+    }
+  }, [userId]);
+
+  const handleAddSavingsGoal = React.useCallback(async (name, targetAmt, deadline) => {
+    const newGoal = {
+      id: 'goal_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+      name,
+      targetAmount: parseFloat(targetAmt) || 0,
+      currentAmount: 0,
+      deadline,
+      createdAt: new Date().toISOString()
+    };
+    const updatedGoals = [...goals, newGoal];
+    setGoals(updatedGoals);
+    saveSavingsGoals(updatedGoals, userId);
+
+    if (userId) {
+      try {
+        await supabase.from('savings_goals').insert({
+          id: newGoal.id,
+          user_id: userId,
+          name: newGoal.name,
+          target_amount: newGoal.targetAmount,
+          current_amount: newGoal.currentAmount,
+          deadline: newGoal.deadline || null
+        });
+      } catch (err) {
+        console.error("Failed to upload savings goal:", err);
+      }
+    }
+  }, [goals, userId]);
+
+  const handleAddGoalContribution = React.useCallback(async (goalId, amountToAllocate) => {
+    const updatedGoals = goals.map(g => {
+      if (g.id === goalId) {
+        return { ...g, currentAmount: g.currentAmount + (parseFloat(amountToAllocate) || 0) };
+      }
+      return g;
+    });
+    setGoals(updatedGoals);
+    saveSavingsGoals(updatedGoals, userId);
+
+    if (userId) {
+      try {
+        const targetGoal = updatedGoals.find(g => g.id === goalId);
+        await supabase
+          .from('savings_goals')
+          .update({ current_amount: targetGoal.currentAmount })
+          .eq('id', goalId);
+      } catch (err) {
+        console.error("Failed to update savings goal amount:", err);
+      }
+    }
+  }, [goals, userId]);
+
+  const handleDeleteSavingsGoal = React.useCallback(async (goalId) => {
+    if (!window.confirm("Are you sure you want to delete this savings goal?")) return;
+    const updatedGoals = goals.filter(g => g.id !== goalId);
+    setGoals(updatedGoals);
+    saveSavingsGoals(updatedGoals, userId);
+
+    if (userId) {
+      try {
+        await supabase.from('savings_goals').delete().eq('id', goalId);
+      } catch (err) {
+        console.error("Failed to delete savings goal:", err);
+      }
+    }
+  }, [goals, userId]);
   const handleSwipeOpen = React.useCallback((id) => {
     setSwipedItemId(id);
   }, []);
@@ -1340,6 +1611,15 @@ export default function App() {
               )}
             </div>
 
+            {/* Savings Goals Target Tracker */}
+            <SavingsGoalsCard
+              goals={goals}
+              currencySymbol={currSymbol}
+              onAddGoal={handleAddSavingsGoal}
+              onAddContribution={handleAddGoalContribution}
+              onDeleteGoal={handleDeleteSavingsGoal}
+            />
+
             {/* Distribution chart & AI Savings Advisor */}
             <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1415,6 +1695,44 @@ export default function App() {
                   <div style={{ whiteSpace: 'pre-wrap' }}>{aiInsights}</div>
                 </div>
               )}
+
+              {/* AI Forecast & Projections */}
+              <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>🔮 AI Spending Forecast</span>
+                  <button
+                    onClick={fetchAiForecast}
+                    disabled={isAiForecastLoading}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--accent-primary)',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      padding: 0
+                    }}
+                  >
+                    {isAiForecastLoading ? 'Predicting...' : (aiForecast ? '🔄 Refresh' : 'Get Projection')}
+                  </button>
+                </div>
+                
+                {aiForecast && (
+                  <div style={{ 
+                    background: 'rgba(255,255,255,0.02)', 
+                    border: '1px solid var(--glass-border)', 
+                    borderRadius: '8px', 
+                    padding: '10px',
+                    fontSize: '11px',
+                    color: 'var(--text-secondary)',
+                    lineHeight: '1.5',
+                    maxHeight: '110px',
+                    overflowY: 'auto'
+                  }}>
+                    <div style={{ whiteSpace: 'pre-wrap' }}>{aiForecast}</div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Backup Action card */}
@@ -1595,9 +1913,29 @@ export default function App() {
               </div>
 
               {filteredExpenses.length === 0 ? (
-                <div className="empty-state glass-card">
-                  <div className="icon">💸</div>
-                  <p>No transactions match your filters.</p>
+                <div className="empty-state glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '30px 20px', alignItems: 'center' }}>
+                  <div className="icon" style={{ fontSize: '32px' }}>💸</div>
+                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    {expenses.length === 0 ? "You haven't logged any expenses yet." : "No transactions match your filters."}
+                  </p>
+                  {expenses.length === 0 && (
+                    <button
+                      onClick={handleLoadDemoData}
+                      style={{
+                        background: 'var(--accent-glow)',
+                        border: '1px solid var(--accent-primary)',
+                        color: 'var(--accent-primary)',
+                        padding: '6px 16px',
+                        borderRadius: '20px',
+                        fontWeight: '600',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        marginTop: '4px'
+                      }}
+                    >
+                      🧪 Load Sample Demo Data
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="expense-list">
@@ -1619,6 +1957,7 @@ export default function App() {
                         onSwipeClose={handleSwipeClose}
                         onClick={handleListItemClick}
                         onDelete={handleListItemDelete}
+                        searchQuery={searchQuery}
                       />
                     );
                   })}
@@ -1685,6 +2024,7 @@ export default function App() {
           isPushSupported={isPushSupported}
           isPushEnabled={isPushEnabled}
           onTogglePush={handleTogglePush}
+          onResetCache={handleResetCache}
           onClose={() => setActiveBudgetModal(false)}
         />
       )}

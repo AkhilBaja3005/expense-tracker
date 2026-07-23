@@ -19,6 +19,7 @@ function ExpenseForm({
   const [billingDay, setBillingDay] = useState(1);
   const [suggestedCat, setSuggestedCat] = useState('Others');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isOcrLoading, setIsOcrLoading] = useState(false);
   const debounceTimer = useRef(null);
   const abortControllerRef = useRef(null);
 
@@ -80,6 +81,70 @@ function ExpenseForm({
     }
   };
 
+  const handleReceiptScan = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsOcrLoading(true);
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = async () => {
+        const base64Data = reader.result.split(',')[1];
+        const mimeType = file.type;
+
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        if (!apiKey) {
+          alert("Gemini API Key is missing. Please add VITE_GEMINI_API_KEY to your environment.");
+          setIsOcrLoading(false);
+          return;
+        }
+
+        // Call Gemini multimodal API (3.1-flash-lite supports images too and is faster!)
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: mimeType,
+                    data: base64Data
+                  }
+                },
+                {
+                  text: "You are an expert receipt parser. Scan this receipt image and extract the main store name (description), total spending amount, and categorise it into one of these keys: Food, Transport, Shopping, Bills, Entertainment, Health, Others. Return ONLY a single raw valid JSON object and nothing else. Output format:\n{\n  \"description\": \"Store Name\",\n  \"amount\": 12.50,\n  \"category\": \"Food\"\n}"
+                }
+              ]
+            }]
+          })
+        });
+
+        if (!response.ok) throw new Error("Gemini OCR request failed");
+
+        const result = await response.json();
+        const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!jsonText) throw new Error("Failed to extract content text from Gemini response");
+        
+        const cleanJson = jsonText.replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(cleanJson);
+        
+        if (parsed.description) setDescription(parsed.description);
+        if (parsed.amount) setAmount(parsed.amount.toString());
+        if (parsed.category) setCategory(parsed.category);
+        setIsOcrLoading(false);
+      };
+    } catch (err) {
+      console.error("Receipt OCR parsing failed:", err);
+      alert("Failed to analyze receipt: " + err.message);
+      setIsOcrLoading(false);
+    }
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!description.trim() || !amount) return;
@@ -125,6 +190,24 @@ function ExpenseForm({
         </h2>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          
+          {/* AI Receipt Scanner Widget */}
+          {!expense && (
+            <div className="form-group" style={{ background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '6px', border: '1px dashed var(--glass-border)' }}>
+              <label style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>📷 AI Receipt Scanner</span>
+                {isOcrLoading && <span style={{ color: 'var(--accent-primary)', fontSize: '10px' }}>Analyzing receipt...</span>}
+              </label>
+              <input 
+                type="file" 
+                accept="image/*" 
+                onChange={handleReceiptScan} 
+                disabled={isOcrLoading}
+                style={{ fontSize: '11px', marginTop: '4px', cursor: 'pointer', color: 'var(--text-muted)', width: '100%' }}
+              />
+            </div>
+          )}
+
           <div className="form-group">
             <label style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
               <span>Description</span>

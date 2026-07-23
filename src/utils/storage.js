@@ -27,6 +27,25 @@ export function saveExpenses(expenses, userId) {
   }
 }
 
+const GOALS_STORAGE_KEY = 'expenser_savings_goals';
+
+export function getSavingsGoals(userId) {
+  try {
+    const data = localStorage.getItem(getUserKey(GOALS_STORAGE_KEY, userId));
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveSavingsGoals(goals, userId) {
+  try {
+    localStorage.setItem(getUserKey(GOALS_STORAGE_KEY, userId), JSON.stringify(goals));
+  } catch (e) {
+    console.error('Failed to save savings goals locally', e);
+  }
+}
+
 export function getBudget(userId) {
   try {
     const budget = localStorage.getItem(getUserKey(BUDGET_STORAGE_KEY, userId));
@@ -282,6 +301,29 @@ export async function syncFromCloud(userId, onSyncDone) {
       saveBudget(parseFloat(dbSettings.budget), userId);
       saveCategoryBudgets(dbSettings.category_budgets || {}, userId);
       localStorage.setItem(`expenser_currency_${userId}`, dbSettings.currency);
+    }
+
+    // 3. Sync Savings Goals
+    try {
+      const { data: dbGoals, error: goalsError } = await supabase
+        .from('savings_goals')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true });
+
+      if (!goalsError && dbGoals) {
+        const formattedGoals = dbGoals.map(g => ({
+          id: g.id,
+          name: g.name,
+          targetAmount: parseFloat(g.target_amount),
+          currentAmount: parseFloat(g.current_amount),
+          deadline: g.deadline,
+          createdAt: g.created_at
+        }));
+        saveSavingsGoals(formattedGoals, userId);
+      }
+    } catch (goalsErr) {
+      console.warn("Savings goals sync warning:", goalsErr);
     }
 
     if (onSyncDone) onSyncDone();

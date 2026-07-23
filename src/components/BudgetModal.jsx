@@ -9,7 +9,8 @@ function BudgetModal({
   currencySymbol = '$',
   isPushSupported = false,
   isPushEnabled = false,
-  onTogglePush
+  onTogglePush,
+  onResetCache
 }) {
   const [budget, setBudget] = useState(currentBudget);
   const [catBudgets, setCatBudgets] = useState({ ...categoryBudgets });
@@ -151,6 +152,33 @@ function BudgetModal({
               </label>
             </div>
           )}
+
+          {/* System Force Sync Reset */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderTop: '1px solid var(--glass-border)', paddingTop: '10px' }}>
+            <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>⚙️ System Recovery</span>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm("Warning: This will clear your local storage cache, discard offline changes, and force-pull your fresh transaction logs from Supabase cloud. Continue?")) {
+                  onResetCache();
+                }
+              }}
+              style={{
+                background: 'rgba(244, 63, 94, 0.08)',
+                border: '1px solid rgba(244, 63, 94, 0.25)',
+                color: 'var(--danger)',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                fontWeight: '600',
+                fontSize: '11px',
+                cursor: 'pointer',
+                textAlign: 'center',
+                width: '100%'
+              }}
+            >
+              🔄 Clear Cache & Force Cloud Sync
+            </button>
+          </div>
 
           <div className="btn-group" style={{ marginTop: '4px' }}>
             <button type="button" className="btn btn-secondary" onClick={onClose}>
