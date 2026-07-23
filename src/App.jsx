@@ -197,7 +197,7 @@ export default function App() {
 
       window.google.accounts.id.renderButton(
         document.getElementById("google-signin-btn"),
-        { theme: "outline", size: "large", width: "100%" }
+        { theme: "outline", size: "large", width: "100%", alignment: "center" }
       );
     }
   }, [user]);
@@ -213,6 +213,29 @@ export default function App() {
         });
       }
     });
+  };
+
+  const handleExportCSV = () => {
+    const headers = ['Description', 'Amount', 'Category', 'Date', 'Notes', 'Date Added', 'Date Modified'];
+    const rows = expenses.map(exp => [
+      `"${exp.description.replace(/"/g, '""')}"`,
+      exp.amount,
+      CATEGORIES[exp.category]?.name || exp.category,
+      exp.date,
+      `"${(exp.notes || '').replace(/"/g, '""')}"`,
+      exp.dateAdded,
+      exp.dateModified
+    ]);
+    
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `expenses_${user.name.replace(/\s+/g, '_').toLowerCase()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const userId = user?.id || null;
@@ -351,7 +374,7 @@ export default function App() {
 
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center' }}>
           <h3 style={{ fontSize: '16px', fontWeight: '600' }}>Sign in to continue</h3>
-          <div id="google-signin-btn" style={{ width: '100%' }}></div>
+          <div id="google-signin-btn" style={{ display: 'flex', justifyContent: 'center', width: '100%' }}></div>
         </div>
       </div>
     );
