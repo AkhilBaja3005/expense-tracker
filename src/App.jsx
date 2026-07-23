@@ -84,6 +84,7 @@ import OfflineQueueModal from './components/OfflineQueueModal';
 import ExpenseListItem from './components/ExpenseListItem';
 import SavingsGoalsCard from './components/SavingsGoalsCard';
 import IncomeCard from './components/IncomeCard';
+import CsvMapperModal from './components/CsvMapperModal';
 
 const CURRENCIES = {
   USD: { symbol: '$', name: 'USD ($)' },
@@ -150,6 +151,9 @@ export default function App() {
   // Savings Goals states
   const [goals, setGoals] = useState([]);
   const [incomeList, setIncomeList] = useState([]);
+  const [csvHeaders, setCsvHeaders] = useState([]);
+  const [csvRows, setCsvRows] = useState([]);
+  const [showCsvMapper, setShowCsvMapper] = useState(false);
   
   // Sorters, date filters, and reminders state
   const [searchQuery, setSearchQuery] = useState('');
@@ -532,7 +536,7 @@ export default function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (evt) => {
+    reader.onload = (evt) => {
       const text = evt.target.result;
       const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
       if (lines.length <= 1) {
@@ -540,65 +544,65 @@ export default function App() {
         return;
       }
 
-      // Parse headers
-      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
-      const descIdx = headers.indexOf('description');
-      const amtIdx = headers.indexOf('amount');
-      const catIdx = headers.indexOf('category');
-      const dateIdx = headers.indexOf('date');
-      const notesIdx = headers.indexOf('notes');
-
-      if (descIdx === -1 || amtIdx === -1) {
-        alert('CSV must contain at least "Description" and "Amount" headers.');
-        return;
-      }
-
-      const importedExpenses = [];
-      const userId = user?.id || null;
-
+      const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+      const parsedRows = [];
       for (let i = 1; i < lines.length; i++) {
         const row = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
         const cleanRow = row.map(cell => cell.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
-
-        if (cleanRow.length < Math.max(descIdx, amtIdx) + 1) continue;
-
-        const desc = cleanRow[descIdx] || 'Imported Expense';
-        const amt = parseFloat(cleanRow[amtIdx]) || 0;
-        
-        let cat = 'Others';
-        if (catIdx !== -1 && cleanRow[catIdx]) {
-          const rawCat = cleanRow[catIdx];
-          const matchedKey = Object.keys(CATEGORIES).find(
-            k => k.toLowerCase() === rawCat.toLowerCase() || CATEGORIES[k].name.toLowerCase() === rawCat.toLowerCase()
-          );
-          if (matchedKey) cat = matchedKey;
+        if (cleanRow.length > 0) {
+          parsedRows.push(cleanRow);
         }
-
-        const date = dateIdx !== -1 && cleanRow[dateIdx] ? cleanRow[dateIdx] : new Date().toISOString().split('T')[0];
-        const notes = notesIdx !== -1 ? cleanRow[notesIdx] : '';
-
-        importedExpenses.push({
-          description: desc,
-          amount: amt,
-          category: cat,
-          date: date,
-          notes: notes,
-          isSubscription: false
-        });
       }
 
-      if (importedExpenses.length > 0) {
-        for (const exp of importedExpenses) {
-          await addExpense(exp, userId);
-        }
-        setExpenses(getExpenses(userId));
-        alert(`Successfully imported ${importedExpenses.length} expenses!`);
-        triggerCloudSync(userId);
-      } else {
-        alert('No valid expenses found in CSV.');
-      }
+      setCsvHeaders(rawHeaders);
+      setCsvRows(parsedRows);
+      setShowCsvMapper(true);
     };
     reader.readAsText(file);
+  };
+
+  const handleConfirmCsvImport = async (mapping) => {
+    const userId = user?.id || null;
+    const importedExpenses = [];
+
+    for (const row of csvRows) {
+      if (row.length < Math.max(mapping.description, mapping.amount) + 1) continue;
+      const desc = row[mapping.description] || 'Imported Expense';
+      const amt = parseFloat(row[mapping.amount]) || 0;
+      
+      let cat = 'Others';
+      if (mapping.category !== -1 && row[mapping.category]) {
+        const rawCat = row[mapping.category];
+        const matchedKey = Object.keys(CATEGORIES).find(
+          k => k.toLowerCase() === rawCat.toLowerCase() || CATEGORIES[k].name.toLowerCase() === rawCat.toLowerCase()
+        );
+        if (matchedKey) cat = matchedKey;
+      }
+
+      const date = mapping.date !== -1 && row[mapping.date] ? row[mapping.date] : new Date().toISOString().split('T')[0];
+      const notes = mapping.notes !== -1 ? row[mapping.notes] : '';
+
+      importedExpenses.push({
+        description: desc,
+        amount: amt,
+        category: cat,
+        date: date,
+        notes: notes,
+        isSubscription: false
+      });
+    }
+
+    if (importedExpenses.length > 0) {
+      for (const exp of importedExpenses) {
+        await addExpense(exp, userId);
+      }
+      setExpenses(getExpenses(userId));
+      alert(`Successfully imported ${importedExpenses.length} expenses!`);
+      triggerCloudSync(userId);
+    } else {
+      alert('No valid expenses found in CSV.');
+    }
+    setShowCsvMapper(false);
   };
 
   const sendTestNotification = () => {
@@ -2229,7 +2233,7 @@ export default function App() {
       </main>
 
       {/* Bottom Navigation Bar (Mobile Only) */}
-      <div className="mobile-nav-bar" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', width: '100%', padding: '4px 0' }}>
+      <div className="mobile-nav-bar">
         <button 
           onClick={() => setActiveTab('dashboard')} 
           className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
@@ -2307,6 +2311,16 @@ export default function App() {
         <OfflineQueueModal
           onClose={() => setShowQueueInspector(false)}
           onQueueChanged={() => setPendingSyncs(getPendingSyncCount())}
+        />
+      )}
+
+      {/* CSV Column Mapper Modal */}
+      {showCsvMapper && (
+        <CsvMapperModal
+          headers={csvHeaders}
+          rows={csvRows}
+          onConfirm={handleConfirmCsvImport}
+          onClose={() => setShowCsvMapper(false)}
         />
       )}
 
