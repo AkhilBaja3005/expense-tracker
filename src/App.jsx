@@ -271,30 +271,63 @@ export default function App() {
     try {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 'AQ.Ab8RN6Kzvrqkj0dt7I38FY9ouxPrG9RLkZ2uUwq8TfS-G8yLhA';
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `Analyze this monthly budget status:
-              - Overall Budget: ${currSymbol}${budget}
-              - Total Spent: ${currSymbol}${totalSpent}
-              - Recurring Bills Total: ${currSymbol}${totalSubscriptionCost}
-              - Spending per Category: ${JSON.stringify(categoryTotals)}
-              Please provide exactly 3 concise, bulleted, actionable savings suggestions in clean text (no markdown formatting, no stars). Keep it brief.`
+      // 1. Attempt with gemini-2.5-flash
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: `Analyze this monthly budget status:
+                - Overall Budget: ${currSymbol}${budget}
+                - Total Spent: ${currSymbol}${totalSpent}
+                - Recurring Bills Total: ${currSymbol}${totalSubscriptionCost}
+                - Spending per Category: ${JSON.stringify(categoryTotals)}
+                Please provide exactly 3 concise, bulleted, actionable savings suggestions in clean text (no markdown formatting, no stars). Keep it brief.`
+              }]
             }]
-          }]
-        })
-      });
+          })
+        });
 
-      if (!response.ok) throw new Error('Insights failed or rate-limited');
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) throw new Error('Empty response');
-      setAiInsights(text.trim());
+        if (!response.ok) throw new Error('gemini-2.5-flash failed/rate-limited');
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error('Empty response');
+        setAiInsights(text.trim());
+        setIsAiInsightsLoading(false);
+        return;
+      } catch (err1) {
+        console.warn('gemini-2.5-flash failed, attempting gemini-3.1-flash-lite...', err1);
+        
+        // 2. Attempt with gemini-3.1-flash-lite as fallback
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: `Analyze this monthly budget status:
+                - Overall Budget: ${currSymbol}${budget}
+                - Total Spent: ${currSymbol}${totalSpent}
+                - Recurring Bills Total: ${currSymbol}${totalSubscriptionCost}
+                - Spending per Category: ${JSON.stringify(categoryTotals)}
+                Please provide exactly 3 concise, bulleted, actionable savings suggestions in clean text (no markdown formatting, no stars). Keep it brief.`
+              }]
+            }]
+          })
+        });
+
+        if (!response.ok) throw new Error('gemini-3.1-flash-lite failed/rate-limited');
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error('Empty response');
+        setAiInsights(text.trim());
+        setIsAiInsightsLoading(false);
+        return;
+      }
     } catch (e) {
-      console.warn('Gemini API quota exceeded or offline, generating local mathematical insights fallback.', e);
+      console.warn('Both Gemini APIs failed, using local mathematical insights fallback.', e);
       
       // Smart Fallback insights based on actual user data
       const limitStatus = budget - totalSpent;
