@@ -388,6 +388,38 @@ export default function App() {
     reader.readAsText(file);
   };
 
+  const sendTestNotification = () => {
+    if (!('Notification' in window)) {
+      alert("This browser does not support push notifications.");
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      new Notification("Expense Tracker Test Alert 🔔", {
+        body: "Success! PWA push notifications are configured and working correctly.",
+        icon: "/icon.svg",
+        badge: "/icon.svg",
+        tag: "test-notification"
+      });
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+          new Notification("Expense Tracker Test Alert 🔔", {
+            body: "Success! PWA push notifications are configured and working correctly.",
+            icon: "/icon.svg",
+            badge: "/icon.svg",
+            tag: "test-notification"
+          });
+          setNotificationStatus('granted');
+        } else {
+          alert("Notification permission was denied.");
+        }
+      });
+    } else {
+      alert("Notification permission is blocked. Please reset/enable notification permissions in your browser site settings to receive notifications.");
+    }
+  };
+
   const userId = user?.id || null;
   const currSymbol = CURRENCIES[currency].symbol;
   const totalSpent = expenses.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
@@ -1048,14 +1080,58 @@ export default function App() {
             </div>
 
             {/* Backup Action card */}
-            <div className="glass-card" style={{ display: 'flex', gap: '10px' }}>
-              <button 
-                onClick={handleExportCSV}
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+                <button 
+                  onClick={handleExportCSV}
+                  style={{
+                    flex: 1,
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--glass-border)',
+                    color: 'var(--text-primary)',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: '600'
+                  }}
+                >
+                  📥 Export CSV
+                </button>
+                <label 
+                  style={{
+                    flex: 1,
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--glass-border)',
+                    color: 'var(--text-primary)',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    textAlign: 'center',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  📤 Import CSV
+                  <input 
+                    type="file" 
+                    accept=".csv" 
+                    onChange={handleImportCSV} 
+                    style={{ display: 'none' }} 
+                  />
+                </label>
+              </div>
+
+              <button
+                onClick={sendTestNotification}
                 style={{
-                  flex: 1,
+                  width: '100%',
                   background: 'var(--bg-tertiary)',
                   border: '1px solid var(--glass-border)',
-                  color: 'var(--text-primary)',
+                  color: 'var(--accent-primary)',
                   padding: '10px',
                   borderRadius: '8px',
                   cursor: 'pointer',
@@ -1063,33 +1139,8 @@ export default function App() {
                   fontWeight: '600'
                 }}
               >
-                📥 Export CSV
+                🔔 Test Push Notification
               </button>
-              <label 
-                style={{
-                  flex: 1,
-                  background: 'var(--bg-tertiary)',
-                  border: '1px solid var(--glass-border)',
-                  color: 'var(--text-primary)',
-                  padding: '10px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  textAlign: 'center',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                📤 Import CSV
-                <input 
-                  type="file" 
-                  accept=".csv" 
-                  onChange={handleImportCSV} 
-                  style={{ display: 'none' }} 
-                />
-              </label>
             </div>
           </div>
 
