@@ -181,7 +181,6 @@ function ExpenseForm({
   const projectedTotal = currentSpent - originalAmt + entryAmt;
   const isProjectedOver = limit > 0 && projectedTotal > limit;
   const remainingBeforeEntry = limit - (currentSpent - originalAmt);
-
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>

@@ -171,8 +171,8 @@ export default function App() {
   const [isPushSupported, setIsPushSupported] = useState(false);
   const [isPushEnabled, setIsPushEnabled] = useState(false);
 
-  // Reconnection Sync Banner
-  const [showSyncSuccess, setShowSyncSuccess] = useState(false);
+  // Reconnection Sync Toast state
+  const [toastMessage, setToastMessage] = useState(null);
 
   // Check if user has logged any expenses today
   const hasLoggedToday = expenses.some((exp) => {
@@ -194,10 +194,16 @@ export default function App() {
       }
       setIsSyncing(false);
       setPendingSyncs(getPendingSyncCount());
-      setShowSyncSuccess(true);
-      setTimeout(() => setShowSyncSuccess(false), 3000);
+      setToastMessage('🟢 Back online! Syncing your local changes with Supabase...');
+      setTimeout(() => setToastMessage(null), 4000);
     };
-    const goOffline = () => setIsOffline(true);
+    
+    const goOffline = () => {
+      setIsOffline(true);
+      setToastMessage('🔌 Offline mode active. Local changes will sync when online.');
+      setTimeout(() => setToastMessage(null), 4000);
+    };
+
     window.addEventListener('online', goOnline);
     window.addEventListener('offline', goOffline);
     return () => {
@@ -1273,24 +1279,6 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {isOffline && <div className="offline-banner">Working Offline</div>}
-      
-      {showSyncSuccess && (
-        <div style={{
-          background: 'var(--success)',
-          color: 'white',
-          fontSize: '12px',
-          fontWeight: '600',
-          textAlign: 'center',
-          padding: '6px',
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
-          animation: 'fadeIn 0.3s ease-out'
-        }}>
-          🟢 Back Online! Offline changes synchronized successfully.
-        </div>
-      )}
 
       <header className="header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -2102,6 +2090,33 @@ export default function App() {
           onClose={() => setShowQueueInspector(false)}
           onQueueChanged={() => setPendingSyncs(getPendingSyncCount())}
         />
+      )}
+
+      {/* Floating PWA Connectivity Toast */}
+      {toastMessage && (
+        <div style={{
+          position: 'fixed',
+          bottom: '80px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(18, 18, 20, 0.95)',
+          border: '1px solid var(--glass-border)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          borderRadius: '24px',
+          padding: '10px 20px',
+          color: 'var(--text-primary)',
+          fontSize: '11px',
+          fontWeight: '600',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          pointerEvents: 'none',
+          textAlign: 'center',
+          whiteSpace: 'nowrap'
+        }}>
+          {toastMessage}
+        </div>
       )}
     </div>
   );
