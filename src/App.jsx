@@ -981,9 +981,14 @@ export default function App() {
             {subscriptions.length > 0 && (
               <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-secondary)' }}>
-                    🔁 Fixed Subscriptions
-                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-secondary)' }}>
+                      🔁 Fixed Subscriptions
+                    </h3>
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                      Consumes {(budget > 0 ? (totalSubscriptionCost / budget) * 100 : 0).toFixed(1)}% of budget
+                    </span>
+                  </div>
                   <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--accent-primary)' }}>
                     {currSymbol}{totalSubscriptionCost.toFixed(2)}/mo
                   </span>
