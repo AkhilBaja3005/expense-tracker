@@ -61,9 +61,6 @@ export default function App() {
   const [budget, setBudget] = useState(1000);
   const [categoryBudgets, setCategoryBudgets] = useState({});
   const [currency, setCurrency] = useState('USD');
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('expenser_theme') || 'dark';
-  });
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -83,16 +80,6 @@ export default function App() {
   const [notificationStatus, setNotificationStatus] = useState(() => {
     return 'Notification' in window ? Notification.permission : 'unsupported';
   });
-
-  // Apply Theme class
-  useEffect(() => {
-    if (theme === 'light') {
-      document.body.classList.add('light-mode');
-    } else {
-      document.body.classList.remove('light-mode');
-    }
-    localStorage.setItem('expenser_theme', theme);
-  }, [theme]);
 
   // Track network status & auto-flush sync queue
   useEffect(() => {
@@ -408,23 +395,6 @@ export default function App() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Theme Switcher Toggle */}
-          <button
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            style={{
-              background: 'var(--glass-bg)',
-              border: '1px solid var(--glass-border)',
-              color: 'var(--text-primary)',
-              padding: '6px 10px',
-              borderRadius: '20px',
-              cursor: 'pointer',
-              fontSize: '11px',
-              fontWeight: '600'
-            }}
-          >
-            {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
-          </button>
-
           {/* Manual Cloud Sync Button */}
           <button
             onClick={() => triggerCloudSync(user.id)}
