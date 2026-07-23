@@ -707,7 +707,9 @@ export default function App() {
                   padding: '12px',
                   fontSize: '12px',
                   color: 'var(--text-secondary)',
-                  lineHeight: '1.6'
+                  lineHeight: '1.6',
+                  maxHeight: '130px',
+                  overflowY: 'auto'
                 }}>
                   <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: '6px' }}>
                     Gemini Financial Advice:
