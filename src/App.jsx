@@ -69,13 +69,68 @@ export default function App() {
   const [editingExpense, setEditingExpense] = useState(null);
   const [activeBudgetModal, setActiveBudgetModal] = useState(false);
   
-  // Filtering and Sorting state
+  // Sorters, date filters, and reminders state
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [sortBy, setSortBy] = useState('newest');
   const [dateFilter, setDateFilter] = useState('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+
+  // Daily tracker reminder
+  const [dailyReminder, setDailyReminder] = useState('');
+
+  // Check if user has logged any expenses today
+  const hasLoggedToday = expenses.some((exp) => {
+    const expDateStr = new Date(exp.date).toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
+    return expDateStr === todayStr;
+  });
+
+  // Fetch or retrieve daily reminder message
+  useEffect(() => {
+    if (hasLoggedToday) {
+      setDailyReminder('');
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const cachedReminder = sessionStorage.getItem(`expenser_reminder_${todayStr}`);
+
+    if (cachedReminder) {
+      setDailyReminder(cachedReminder);
+      return;
+    }
+
+    const fetchReminder = async () => {
+      try {
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 'AQ.Ab8RN6Kzvrqkj0dt7I38FY9ouxPrG9RLkZ2uUwq8TfS-G8yLhA';
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: `Generate a single short, creative, motivational or witty notification alert message (maximum 12 words) reminding a user to log their daily expenses on their tracker. Return ONLY the message string.`
+              }]
+            }]
+          })
+        });
+        if (!response.ok) throw new Error();
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        const reminderText = text ? text.trim() : '⚠️ You haven\'t logged any expenses today! Keep your streaks alive.';
+        setDailyReminder(reminderText);
+        sessionStorage.setItem(`expenser_reminder_${todayStr}`, reminderText);
+      } catch (e) {
+        const defaultMsg = '⚠️ You haven\'t logged any expenses today! Keep your streaks alive.';
+        setDailyReminder(defaultMsg);
+        sessionStorage.setItem(`expenser_reminder_${todayStr}`, defaultMsg);
+      }
+    };
+
+    fetchReminder();
+  }, [expenses, hasLoggedToday]);
 
   // AI Savings Advisor state
   const [aiInsights, setAiInsights] = useState('');
@@ -565,6 +620,26 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* Daily reminder banner */}
+      {!hasLoggedToday && dailyReminder && (
+        <div style={{
+          background: 'rgba(6, 182, 212, 0.05)',
+          border: '1px solid var(--glass-border)',
+          color: 'var(--text-primary)',
+          padding: '10px 16px',
+          margin: '16px 20px 0 20px',
+          borderRadius: '8px',
+          fontSize: '13px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          boxShadow: '0 4px 12px rgba(6, 182, 212, 0.04)'
+        }}>
+          <span style={{ fontSize: '15px' }}>🔔</span>
+          <span style={{ fontWeight: '500', opacity: 0.95 }}>{dailyReminder}</span>
+        </div>
+      )}
 
       <main className="content">
         <div className="desktop-grid">
