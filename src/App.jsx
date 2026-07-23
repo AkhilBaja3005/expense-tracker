@@ -818,25 +818,26 @@ export default function App() {
           <div className={`left-column ${activeTab === 'dashboard' ? 'show-mobile' : 'hide-mobile'}`} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {/* Overall Budget Status */}
             <div className="glass-card budget-summary">
-              <div className="budget-row">
-                <span style={{ color: 'var(--text-secondary)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  Overall Limit
-                  <button 
-                    onClick={() => setActiveBudgetModal(true)}
-                    style={{
-                      background: 'var(--bg-tertiary)',
-                      border: '1px solid var(--glass-border)',
-                      color: 'var(--accent-primary)',
-                      cursor: 'pointer',
-                      fontSize: '10px',
-                      fontWeight: '600',
-                      padding: '2px 6px',
-                      borderRadius: '4px'
-                    }}
-                  >
-                    Edit
-                  </button>
-                </span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Overall Limit</span>
+                <button 
+                  onClick={() => setActiveBudgetModal(true)}
+                  style={{
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--glass-border)',
+                    color: 'var(--accent-primary)',
+                    cursor: 'pointer',
+                    fontSize: '10px',
+                    fontWeight: '600',
+                    padding: '3px 8px',
+                    borderRadius: '12px'
+                  }}
+                >
+                  Configure
+                </button>
+              </div>
+
+              <div className="budget-row" style={{ marginTop: '-4px' }}>
                 <span className="budget-amount">
                   {currSymbol}{totalSpent.toFixed(2)} <span>/ {currSymbol}{budget.toFixed(2)}</span>
                 </span>
