@@ -7,9 +7,7 @@ const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY");
 if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
   throw new Error("VAPID keys are not configured in Supabase environment secrets.");
 }
-const GCM_API_KEY = Deno.env.get("GCM_API_KEY") || ""; // Optional GCM API key for FCM
 
-// Apple requires a valid, reachable email address in VAPID details to authorize pushes
 webPush.setVapidDetails(
   "mailto:akhilbaja3005@gmail.com",
   VAPID_PUBLIC_KEY,
@@ -22,7 +20,6 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Fetch all active push subscriptions
     const { data: subscriptions, error } = await supabase
       .from("push_subscriptions")
       .select("*");
@@ -30,14 +27,36 @@ Deno.serve(async (req) => {
     if (error) throw error;
 
     const results = [];
-    const notificationPayload = JSON.stringify({
-      title: "Expense Tracker Reminder 🔔",
-      body: "Don't forget to log your food, commute, or shopping expenses today! Keep your streaks alive.",
-      icon: "/icon.svg",
-      badge: "/icon.svg"
-    });
+    const todayDay = new Date().getDate(); // Current day of the month
 
     for (const sub of subscriptions || []) {
+      // Fetch user's subscriptions due today
+      const { data: dueSubs } = await supabase
+        .from("expenses")
+        .select("description, amount")
+        .eq("user_id", sub.user_id)
+        .eq("is_subscription", true)
+        .eq("billing_day", todayDay);
+
+      let title = "Expense Tracker Reminder 🔔";
+      let body = "Don't forget to log your food, commute, or shopping expenses today! Keep your streaks alive.";
+
+      if (dueSubs && dueSubs.length > 0) {
+        title = "Subscription Due Today! 💳";
+        if (dueSubs.length === 1) {
+          body = `Your subscription for "${dueSubs[0].description}" of amount matching today's bill is due!`;
+        } else {
+          body = `You have ${dueSubs.length} subscriptions due today. Don't forget to check your billing planner!`;
+        }
+      }
+
+      const notificationPayload = JSON.stringify({
+        title,
+        body,
+        icon: "/icon.svg",
+        badge: "/icon.svg"
+      });
+
       const pushSubscription = {
         endpoint: sub.endpoint,
         keys: {
@@ -51,7 +70,6 @@ Deno.serve(async (req) => {
         results.push({ endpoint: sub.endpoint, status: "success" });
       } catch (err) {
         console.error(`Failed to send notification to ${sub.endpoint}:`, err);
-        // If expired/gone (410 Gone / 404 Not Found), delete subscription from DB
         if (err.statusCode === 410 || err.statusCode === 404) {
           await supabase
             .from("push_subscriptions")

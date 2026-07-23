@@ -14,7 +14,7 @@ export function getExpenses(userId) {
   try {
     const data = localStorage.getItem(getUserKey(EXPENSES_STORAGE_KEY, userId));
     return data ? JSON.parse(data) : [];
-  } catch (e) {
+  } catch {
     return [];
   }
 }
@@ -31,7 +31,7 @@ export function getBudget(userId) {
   try {
     const budget = localStorage.getItem(getUserKey(BUDGET_STORAGE_KEY, userId));
     return budget ? parseFloat(budget) : 1000;
-  } catch (e) {
+  } catch {
     return 1000;
   }
 }
@@ -48,7 +48,7 @@ export function getCategoryBudgets(userId) {
   try {
     const data = localStorage.getItem(getUserKey(CAT_BUDGETS_STORAGE_KEY, userId));
     return data ? JSON.parse(data) : {};
-  } catch (e) {
+  } catch {
     return {};
   }
 }
@@ -57,7 +57,7 @@ export function getPendingSyncCount() {
   try {
     const queue = localStorage.getItem(SYNC_QUEUE_KEY);
     return queue ? JSON.parse(queue).length : 0;
-  } catch (e) {
+  } catch {
     return 0;
   }
 }
@@ -71,11 +71,11 @@ export function saveCategoryBudgets(budgets, userId) {
 }
 
 // OFFLINE QUEUE UTILS
-function getSyncQueue() {
+export function getSyncQueue() {
   try {
     const queue = localStorage.getItem(SYNC_QUEUE_KEY);
     return queue ? JSON.parse(queue) : [];
-  } catch (e) {
+  } catch {
     return [];
   }
 }
@@ -88,10 +88,49 @@ function saveSyncQueue(queue) {
   }
 }
 
+export function deleteFromSyncQueue(timestamp) {
+  try {
+    const queue = getSyncQueue();
+    const updated = queue.filter(t => t.timestamp !== timestamp);
+    saveSyncQueue(updated);
+  } catch (e) {
+    console.error('Failed to delete from sync queue', e);
+  }
+}
+
 function addToQueue(action, type, payload, userId) {
   const queue = getSyncQueue();
   queue.push({ action, type, payload, userId, timestamp: Date.now() });
   saveSyncQueue(queue);
+}
+
+// Compact and deduplicate sync queue to fold redundant operations
+function deduplicateQueue(queue) {
+  const expenseMap = new Map(); // id -> latest task
+  let settingsTask = null; // latest settings task
+
+  for (const task of queue) {
+    if (task.type === 'expense') {
+      const id = task.payload.id;
+      if (task.action === 'delete') {
+        // Discard any preceding upsert tasks for this expense ID, and set the delete task
+        expenseMap.set(id, task);
+      } else if (task.action === 'upsert') {
+        // Overwrite any preceding upsert/delete task for this expense ID
+        expenseMap.set(id, task);
+      }
+    } else if (task.type === 'settings') {
+      settingsTask = task;
+    }
+  }
+
+  const compacted = [];
+  expenseMap.forEach(task => compacted.push(task));
+  if (settingsTask) {
+    compacted.push(settingsTask);
+  }
+
+  return compacted.sort((a, b) => a.timestamp - b.timestamp);
 }
 
 // SYNC PENDING OFFLINE ACTIONS TO SUPABASE IN BATCHES
@@ -99,12 +138,17 @@ export async function syncOfflineQueue() {
   const queue = getSyncQueue();
   if (queue.length === 0) return;
 
+  const deduplicated = deduplicateQueue(queue);
+
   const expensesToUpsert = [];
   const expenseIdsToDelete = [];
   const settingsToUpsert = [];
-  const failedTasks = [];
 
-  for (const task of queue) {
+  const upsertTasks = [];
+  const deleteTasks = [];
+  const settingsTasks = [];
+
+  for (const task of deduplicated) {
     const { action, type, payload, userId } = task;
     if (type === 'expense') {
       if (action === 'upsert') {
@@ -118,10 +162,13 @@ export async function syncOfflineQueue() {
           notes: payload.notes,
           date_added: payload.dateAdded,
           date_modified: payload.dateModified,
-          is_subscription: !!payload.isSubscription
+          is_subscription: !!payload.isSubscription,
+          billing_day: payload.billingDay
         });
+        upsertTasks.push(task);
       } else if (action === 'delete') {
         expenseIdsToDelete.push(payload.id);
+        deleteTasks.push(task);
       }
     } else if (type === 'settings') {
       settingsToUpsert.push({
@@ -131,8 +178,11 @@ export async function syncOfflineQueue() {
         category_budgets: payload.categoryBudgets,
         updated_at: new Date().toISOString()
       });
+      settingsTasks.push(task);
     }
   }
+
+  const failedTasks = [];
 
   // 1. Batch Upsert Expenses
   if (expensesToUpsert.length > 0) {
@@ -140,9 +190,17 @@ export async function syncOfflineQueue() {
       const { error } = await supabase.from('expenses').upsert(expensesToUpsert);
       if (error) throw error;
     } catch (err) {
-      console.error('Failed to batch upsert expenses, keeping in queue:', err);
-      // Find matching items from original queue and mark as failed
-      queue.filter(t => t.type === 'expense' && t.action === 'upsert').forEach(t => failedTasks.push(t));
+      console.error('Failed to batch upsert expenses, retrying individually:', err);
+      // Fall back to individual operations to isolate corrupted records
+      for (let i = 0; i < expensesToUpsert.length; i++) {
+        try {
+          const { error } = await supabase.from('expenses').upsert(expensesToUpsert[i]);
+          if (error) throw error;
+        } catch (singleErr) {
+          console.error(`Failed to upsert individual expense ${expensesToUpsert[i].id}:`, singleErr);
+          failedTasks.push(upsertTasks[i]);
+        }
+      }
     }
   }
 
@@ -152,19 +210,27 @@ export async function syncOfflineQueue() {
       const { error } = await supabase.from('expenses').delete().in('id', expenseIdsToDelete);
       if (error) throw error;
     } catch (err) {
-      console.error('Failed to batch delete expenses, keeping in queue:', err);
-      queue.filter(t => t.type === 'expense' && t.action === 'delete').forEach(t => failedTasks.push(t));
+      console.error('Failed to batch delete expenses, retrying individually:', err);
+      for (let i = 0; i < expenseIdsToDelete.length; i++) {
+        try {
+          const { error } = await supabase.from('expenses').delete().eq('id', expenseIdsToDelete[i]);
+          if (error) throw error;
+        } catch (singleErr) {
+          console.error(`Failed to delete individual expense ${expenseIdsToDelete[i]}:`, singleErr);
+          failedTasks.push(deleteTasks[i]);
+        }
+      }
     }
   }
 
   // 3. Sync Settings
-  for (const set of settingsToUpsert) {
+  for (let i = 0; i < settingsToUpsert.length; i++) {
     try {
-      const { error } = await supabase.from('user_settings').upsert(set);
+      const { error } = await supabase.from('user_settings').upsert(settingsToUpsert[i]);
       if (error) throw error;
     } catch (err) {
       console.error('Failed to sync settings, keeping in queue:', err);
-      queue.filter(t => t.type === 'settings').forEach(t => failedTasks.push(t));
+      failedTasks.push(settingsTasks[i]);
     }
   }
 
@@ -197,7 +263,8 @@ export async function syncFromCloud(userId, onSyncDone) {
         notes: item.notes,
         dateAdded: item.date_added,
         dateModified: item.date_modified,
-        isSubscription: !!item.is_subscription
+        isSubscription: !!item.is_subscription,
+        billingDay: item.billing_day
       }));
       saveExpenses(formattedExpenses, userId);
     }
@@ -208,6 +275,8 @@ export async function syncFromCloud(userId, onSyncDone) {
       .select('*')
       .eq('user_id', userId)
       .single();
+
+    if (setBgError) throw setBgError;
 
     if (dbSettings) {
       saveBudget(parseFloat(dbSettings.budget), userId);
@@ -247,10 +316,11 @@ export async function addExpense(expense, userId) {
         notes: newExpense.notes,
         date_added: newExpense.dateAdded,
         date_modified: newExpense.dateModified,
-        is_subscription: !!newExpense.isSubscription
+        is_subscription: !!newExpense.isSubscription,
+        billing_day: newExpense.billingDay
       });
       if (error) throw error;
-    } catch (e) {
+    } catch {
       addToQueue('upsert', 'expense', newExpense, userId);
     }
   }
@@ -285,10 +355,11 @@ export async function updateExpense(id, updatedData, userId) {
         notes: updatedExpense.notes,
         date_added: updatedExpense.dateAdded,
         date_modified: updatedExpense.dateModified,
-        is_subscription: !!updatedExpense.isSubscription
+        is_subscription: !!updatedExpense.isSubscription,
+        billing_day: updatedExpense.billingDay
       });
       if (error) throw error;
-    } catch (e) {
+    } catch {
       addToQueue('upsert', 'expense', updatedExpense, userId);
     }
   }
@@ -304,7 +375,7 @@ export async function deleteExpense(id, userId) {
     try {
       const { error } = await supabase.from('expenses').delete().eq('id', id);
       if (error) throw error;
-    } catch (e) {
+    } catch {
       addToQueue('delete', 'expense', { id }, userId);
     }
   }
@@ -328,7 +399,7 @@ export async function saveCloudSettings(userId, budget, currency, categoryBudget
       updated_at: new Date().toISOString()
     });
     if (error) throw error;
-  } catch (e) {
+  } catch {
     addToQueue('upsert', 'settings', payload, userId);
   }
 }

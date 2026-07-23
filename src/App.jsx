@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   getExpenses, 
   addExpense, 
@@ -11,7 +11,9 @@ import {
   getCategoryBudgets,
   saveCategoryBudgets,
   syncOfflineQueue,
-  getPendingSyncCount
+  getPendingSyncCount,
+  getSyncQueue,
+  deleteFromSyncQueue
 } from './utils/storage';
 import { CATEGORIES } from './utils/categorizer';
 import ExpenseForm from './components/ExpenseForm';
@@ -20,7 +22,7 @@ import { supabase } from './utils/supabaseClient';
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding)
-    .replace(/\-/g, '+')
+    .replace(/-/g, '+')
     .replace(/_/g, '/');
 
   const rawData = window.atob(base64);
@@ -31,8 +33,36 @@ function urlBase64ToUint8Array(base64String) {
   }
   return outputArray;
 }
+
+const getSubscriptionCountdown = (billingDay) => {
+  if (!billingDay) return null;
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  
+  // Set time of today to midnight for clean comparison
+  const todayMidnight = new Date(year, month, today.getDate());
+  let billingDate = new Date(year, month, billingDay);
+  
+  if (billingDate < todayMidnight) {
+    billingDate = new Date(year, month + 1, billingDay);
+  }
+  
+  const diffTime = billingDate - todayMidnight;
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (diffDays === 0) {
+    return 'due today 🔔';
+  }
+  if (diffDays === 1) {
+    return 'due tomorrow ⏰';
+  }
+  return `due in ${diffDays} days`;
+};
 import AnalyticsCharts from './components/AnalyticsCharts';
 import BudgetModal from './components/BudgetModal';
+import OfflineQueueModal from './components/OfflineQueueModal';
+import ExpenseListItem from './components/ExpenseListItem';
 
 const CURRENCIES = {
   USD: { symbol: '$', name: 'USD ($)' },
@@ -63,7 +93,7 @@ function decodeJwt(token) {
       return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
     }).join(''));
     return JSON.parse(jsonPayload);
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -86,6 +116,7 @@ export default function App() {
   const [activeForm, setActiveForm] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
   const [activeBudgetModal, setActiveBudgetModal] = useState(false);
+  const [showQueueInspector, setShowQueueInspector] = useState(false);
   
   // Sorters, date filters, and reminders state
   const [searchQuery, setSearchQuery] = useState('');
@@ -100,16 +131,16 @@ export default function App() {
 
   // Swipe-to-delete gesture states
   const [swipedItemId, setSwipedItemId] = useState(null);
-  const [activeSwipeId, setActiveSwipeId] = useState(null);
-  const [swipeX, setSwipeX] = useState(0);
-  const touchStartX = useRef(0);
-  const touchCurrentX = useRef(0);
 
   // Chart Period State ('today', 'week', 'month', 'all')
   const [chartPeriod, setChartPeriod] = useState('all');
 
   // Daily tracker reminder
   const [dailyReminder, setDailyReminder] = useState('');
+
+  // Push notifications toggle states
+  const [isPushSupported, setIsPushSupported] = useState(false);
+  const [isPushEnabled, setIsPushEnabled] = useState(false);
 
   // Reconnection Sync Banner
   const [showSyncSuccess, setShowSyncSuccess] = useState(false);
@@ -187,7 +218,7 @@ export default function App() {
         const reminderText = text ? text.trim() : '⚠️ You haven\'t logged any expenses today! Keep your streaks alive.';
         setDailyReminder(reminderText);
         sessionStorage.setItem(`expenser_reminder_${todayStr}`, reminderText);
-      } catch (e) {
+      } catch {
         const defaultMsg = '⚠️ You haven\'t logged any expenses today! Keep your streaks alive.';
         setDailyReminder(defaultMsg);
         sessionStorage.setItem(`expenser_reminder_${todayStr}`, defaultMsg);
@@ -276,49 +307,86 @@ export default function App() {
 
   // Setup Google Login & PWA Web Push Service Worker
   useEffect(() => {
-    // 1. Service Worker registration and Web Push subscription
+    // 1. Service Worker registration and Web Push status query
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
         .then(async (reg) => {
           console.log('SW registered successfully:', reg);
-          
-          if (user?.id && reg.pushManager) {
-            try {
-              // VAPID Public Key
-              const pubKey = 'BNT0tNWiED6i5vaUz_yFbNY4tEJIP9Rs1G4HeVcrT7wK9GcDNc2lUR7oBJYB91x86jfpk_JTIx8pYlB4bx7qn9w';
-              const subscription = await reg.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(pubKey)
-              });
-
-              // Extract credentials safely
-              const p256dhKey = subscription.getKey('p256dh');
-              const authKey = subscription.getKey('auth');
-              if (!p256dhKey || !authKey) {
-                throw new Error("Web Push subscription keys are missing or unsupported by the browser.");
-              }
-
-              const p256dh = btoa(String.fromCharCode.apply(null, new Uint8Array(p256dhKey)));
-              const auth = btoa(String.fromCharCode.apply(null, new Uint8Array(authKey)));
-
-              // Store subscription in Supabase
-              await supabase.from('push_subscriptions').upsert({
-                user_id: user.id,
-                endpoint: subscription.endpoint,
-                p256dh,
-                auth
-              });
-              console.log('PWA Push Subscription saved to Supabase');
-            } catch (err) {
-              console.log('Web Push subscription registration failed:', err);
-            }
+          if ('PushManager' in window) {
+            setIsPushSupported(true);
+            const sub = await reg.pushManager.getSubscription();
+            setIsPushEnabled(!!sub);
           }
         })
         .catch((err) => {
           console.error('SW registration failed:', err);
         });
     }
+  }, [user]);
 
+  // Toggle push notifications (subscribe / unsubscribe)
+  const handleTogglePush = async () => {
+    if (!('serviceWorker' in navigator && 'PushManager' in window)) return;
+    if (!user?.id) {
+      alert('Please sign in to configure daily push reminders.');
+      return;
+    }
+    
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (isPushEnabled) {
+        // Unsubscribe active registration
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await sub.unsubscribe();
+          await supabase
+            .from('push_subscriptions')
+            .delete()
+            .eq('endpoint', sub.endpoint);
+        }
+        setIsPushEnabled(false);
+        console.log('Push notifications disabled.');
+      } else {
+        // Subscribe to push notifications
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          alert('Notification permissions are required to enable daily reminders.');
+          return;
+        }
+
+        const pubKey = 'BNT0tNWiED6i5vaUz_yFbNY4tEJIP9Rs1G4HeVcrT7wK9GcDNc2lUR7oBJYB91x86jfpk_JTIx8pYlB4bx7qn9w';
+        const subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(pubKey)
+        });
+
+        const p256dhKey = subscription.getKey('p256dh');
+        const authKey = subscription.getKey('auth');
+        if (!p256dhKey || !authKey) {
+          throw new Error("Web Push subscription keys are missing or unsupported by the browser.");
+        }
+
+        const p256dh = btoa(String.fromCharCode.apply(null, new Uint8Array(p256dhKey)));
+        const auth = btoa(String.fromCharCode.apply(null, new Uint8Array(authKey)));
+
+        await supabase.from('push_subscriptions').upsert({
+          user_id: user.id,
+          endpoint: subscription.endpoint,
+          p256dh,
+          auth
+        });
+
+        setIsPushEnabled(true);
+        console.log('Push notifications enabled.');
+      }
+    } catch (err) {
+      console.error('Push notification toggle failed:', err);
+      alert('Failed to modify push reminders: ' + err.message);
+    }
+  };
+
+  // Setup Google Login & version checks
+  useEffect(() => {
     // 2. Version redeployment test notification notifier
     const CURRENT_VERSION = 'v2.2.0';
     const lastVersion = localStorage.getItem('expenser_app_version');
@@ -350,18 +418,6 @@ export default function App() {
     }
   }, [user]);
 
-  const triggerNotificationTest = () => {
-    if (!('Notification' in window)) return;
-    Notification.requestPermission().then((permission) => {
-      setNotificationStatus(permission);
-      if (permission === 'granted') {
-        new Notification("Expense Tracker", {
-          body: "Notifications active! We will remind you to log your daily expenses.",
-          icon: "/icon.svg"
-        });
-      }
-    });
-  };
 
   const handleExportCSV = () => {
     const headers = ['Description', 'Amount', 'Category', 'Date', 'Notes', 'Recurring Bill', 'Date Added', 'Date Modified'];
@@ -495,41 +551,84 @@ export default function App() {
 
   const userId = user?.id || null;
   const currSymbol = CURRENCIES[currency].symbol;
-  const totalSpent = expenses.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
-  const budgetProgress = Math.min((totalSpent / budget) * 100, 100);
 
-  // Period Overviews Calculations
-  const todayStr = new Date().toISOString().split('T')[0];
-  const spentToday = expenses
-    .filter(e => e.date === todayStr)
-    .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+  const totalSpent = React.useMemo(() => {
+    return expenses.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+  }, [expenses]);
 
-  const oneWeekAgo = new Date();
-  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-  oneWeekAgo.setHours(0,0,0,0);
-  const spentThisWeek = expenses
-    .filter(e => new Date(e.date) >= oneWeekAgo)
-    .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+  const budgetProgress = React.useMemo(() => {
+    return Math.min((totalSpent / budget) * 100, 100);
+  }, [totalSpent, budget]);
 
-  const currentMonthStart = new Date();
-  currentMonthStart.setDate(1);
-  currentMonthStart.setHours(0,0,0,0);
-  const spentThisMonth = expenses
-    .filter(e => new Date(e.date) >= currentMonthStart)
-    .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+  const periodSpendings = React.useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    oneWeekAgo.setHours(0,0,0,0);
+
+    const currentMonthStart = new Date();
+    currentMonthStart.setDate(1);
+    currentMonthStart.setHours(0,0,0,0);
+
+    let todayAmt = 0;
+    let weekAmt = 0;
+    let monthAmt = 0;
+
+    expenses.forEach(e => {
+      const amt = parseFloat(e.amount) || 0;
+      const date = new Date(e.date);
+
+      if (e.date === todayStr) {
+        todayAmt += amt;
+      }
+      if (date >= oneWeekAgo) {
+        weekAmt += amt;
+      }
+      if (date >= currentMonthStart) {
+        monthAmt += amt;
+      }
+    });
+
+    return { today: todayAmt, week: weekAmt, month: monthAmt };
+  }, [expenses]);
+
+  const spentToday = periodSpendings.today;
+  const spentThisWeek = periodSpendings.week;
+  const spentThisMonth = periodSpendings.month;
 
   // Safe Daily Limit Calculation
-  const getSafeDailyLimit = () => {
+  const safeDailyLimit = React.useMemo(() => {
     const today = new Date();
     const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
     const daysLeft = lastDayOfMonth.getDate() - today.getDate() + 1;
     const remaining = budget - totalSpent;
     return remaining > 0 ? remaining / daysLeft : 0;
-  };
+  }, [budget, totalSpent]);
+
+  // Budget Health Score Calculation
+  const healthScore = React.useMemo(() => {
+    if (budget <= 0) return 0;
+    const today = new Date();
+    const totalDays = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    const currentDay = today.getDate();
+    
+    const elapsedFraction = currentDay / totalDays;
+    const spentFraction = totalSpent / budget;
+    const diff = spentFraction - elapsedFraction;
+    
+    if (diff <= 0) return 100;
+    return Math.max(0, Math.min(100, Math.round((1 - diff) * 100)));
+  }, [budget, totalSpent]);
 
   // Smart Subscription Calculations
-  const subscriptions = expenses.filter(e => !!e.isSubscription);
-  const totalSubscriptionCost = subscriptions.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+  const subscriptions = React.useMemo(() => {
+    return expenses.filter(e => !!e.isSubscription);
+  }, [expenses]);
+
+  const totalSubscriptionCost = React.useMemo(() => {
+    return subscriptions.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+  }, [subscriptions]);
 
   // Fetch AI Financial Insights from Gemini with smart offline fallback
   const fetchAiInsights = async () => {
@@ -623,12 +722,12 @@ export default function App() {
       const limitStatus = budget - totalSpent;
       const fallbackTips = [
         `• Your highest spending category is ${highestCat} at ${currSymbol}${highestAmt.toFixed(2)}. Consider cutting down on non-essential items here.`,
-        totalSubscriptionCost > 0 
+        totalSubscriptionCost > 0
           ? `• You have ${subscriptions.length} recurring subscription(s) totaling ${currSymbol}${totalSubscriptionCost.toFixed(2)}/month. Review these to ensure you still get value from all of them.`
           : `• Plan ahead: setting up recurring categories for utilities and bills will help you forecast fixed monthly expenses.`,
-        limitStatus < 0 
+        limitStatus < 0
           ? `• You are currently over budget by ${currSymbol}${Math.abs(limitStatus).toFixed(2)}. Reduce discretionary spending immediately to balance your sheet.`
-          : `• You have ${currSymbol}${limitStatus.toFixed(2)} remaining. Keeping your daily spending under ${currSymbol}${getSafeDailyLimit().toFixed(2)} will guarantee you stay within budget.`
+          : `• You have ${currSymbol}${limitStatus.toFixed(2)} remaining. Keeping your daily spending under ${currSymbol}${safeDailyLimit.toFixed(2)} will guarantee you stay within budget.`
       ];
       
       setAiInsights(fallbackTips.join('\n'));
@@ -642,50 +741,30 @@ export default function App() {
     return 'progress-bar';
   };
 
+  const categorySpendings = React.useMemo(() => {
+    const spendings = {};
+    Object.keys(CATEGORIES).forEach((key) => {
+      spendings[key] = 0;
+    });
+    expenses.forEach((e) => {
+      const cat = e.category || 'Others';
+      const amt = parseFloat(e.amount) || 0;
+      if (spendings[cat] !== undefined) {
+        spendings[cat] += amt;
+      } else {
+        spendings['Others'] = (spendings['Others'] || 0) + amt;
+      }
+    });
+    return spendings;
+  }, [expenses]);
+
   // Check category-specific spending totals
-  const getCategorySpending = (catKey) => {
-    return expenses
-      .filter(e => e.category === catKey)
-      .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
-  };
+  const getCategorySpending = React.useCallback((catKey) => {
+    return categorySpendings[catKey] || 0;
+  }, [categorySpendings]);
 
-  // Swipe-to-delete mobile touch handlers (Fluid Real-time Drag-to-reveal)
-  const handleTouchStart = (e, id) => {
-    if (swipedItemId && swipedItemId !== id) {
-      setSwipedItemId(null); // Reset previously swiped items
-    }
-    touchStartX.current = e.touches[0].clientX;
-    touchCurrentX.current = e.touches[0].clientX;
-    setActiveSwipeId(id);
-    setSwipeX(0);
-  };
 
-  const handleTouchMove = (e, id) => {
-    if (activeSwipeId !== id) return;
-    const diff = touchStartX.current - e.touches[0].clientX;
-    if (diff > 0) {
-      // Dragging left: follow finger up to 84px
-      const displacement = Math.min(diff, 84);
-      setSwipeX(-displacement);
-    } else {
-      // Dragging right: snap to 0
-      setSwipeX(0);
-    }
-  };
-
-  const handleTouchEnd = (id) => {
-    setActiveSwipeId(null);
-    // Snap open if swiped more than 40px left
-    if (swipeX <= -40) {
-      setSwipedItemId(id);
-      setSwipeX(-74);
-    } else {
-      setSwipedItemId(null);
-      setSwipeX(0);
-    }
-  };
-
-  const handleSaveExpense = async (data) => {
+  const handleSaveExpense = React.useCallback(async (data) => {
     if (editingExpense) {
       await updateExpense(editingExpense.id, data, userId);
     } else {
@@ -717,17 +796,17 @@ export default function App() {
         });
       }
     }
-  };
+  }, [editingExpense, userId, totalSpent, budget, currSymbol, notificationStatus, categoryBudgets, getCategorySpending]);
 
-  const handleDeleteExpense = async (id) => {
+  const handleDeleteExpense = React.useCallback(async (id) => {
     await deleteExpense(id, userId);
     setExpenses(getExpenses(userId));
     setPendingSyncs(getPendingSyncCount());
     setActiveForm(false);
     setEditingExpense(null);
-  };
+  }, [userId]);
 
-  const handleSaveBudget = async (newBudget, newCatBudgets) => {
+  const handleSaveBudget = React.useCallback(async (newBudget, newCatBudgets) => {
     saveBudget(newBudget, userId);
     saveCategoryBudgets(newCatBudgets, userId);
     setBudget(newBudget);
@@ -736,12 +815,32 @@ export default function App() {
     if (userId) {
       await saveCloudSettings(userId, newBudget, currency, newCatBudgets);
     }
-  };
+  }, [userId, currency]);
+
+  const handleSwipeOpen = React.useCallback((id) => {
+    setSwipedItemId(id);
+  }, []);
+
+  const handleSwipeClose = React.useCallback(() => {
+    setSwipedItemId(null);
+  }, []);
+
+  const handleListItemClick = React.useCallback((item) => {
+    setEditingExpense(item);
+    setActiveForm(true);
+  }, []);
+
+  const handleListItemDelete = React.useCallback(async (id) => {
+    if (window.confirm("Are you sure you want to delete this expense?")) {
+      await handleDeleteExpense(id);
+      setSwipedItemId(null);
+    }
+  }, [handleDeleteExpense]);
 
   // Filter & Sort expenses logic
-  const getFilteredExpenses = () => {
+  const filteredExpenses = React.useMemo(() => {
     return expenses.filter((exp) => {
-      const matchesSearch = exp.description.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      const matchesSearch = exp.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (exp.notes && exp.notes.toLowerCase().includes(searchQuery.toLowerCase()));
       const matchesCategory = categoryFilter === 'All' || exp.category === categoryFilter;
 
@@ -781,12 +880,10 @@ export default function App() {
       if (sortBy === 'lowest') return a.amount - b.amount;
       return 0;
     });
-  };
-
-  const filteredExpenses = getFilteredExpenses();
+  }, [expenses, searchQuery, categoryFilter, dateFilter, startDate, endDate, sortBy]);
 
   // Get expenses specifically for selected chart period breakdown
-  const getChartExpenses = () => {
+  const chartExpenses = React.useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -807,9 +904,7 @@ export default function App() {
       }
       return true; // 'all'
     });
-  };
-
-  const chartExpenses = getChartExpenses();
+  }, [expenses, chartPeriod]);
 
   // Login Screen
   if (!user) {
@@ -876,7 +971,19 @@ export default function App() {
                 syncing...
               </span>
             ) : (
-              <span style={{ fontSize: '9px', color: pendingSyncs > 0 ? 'var(--danger)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: pendingSyncs > 0 ? '600' : '400' }}>
+              <span 
+                onClick={() => { if (pendingSyncs > 0) setShowQueueInspector(true); }}
+                style={{ 
+                  fontSize: '9px', 
+                  color: pendingSyncs > 0 ? 'var(--danger)' : 'var(--text-muted)', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '4px', 
+                  fontWeight: pendingSyncs > 0 ? '600' : '400',
+                  cursor: pendingSyncs > 0 ? 'pointer' : 'default'
+                }}
+                title={pendingSyncs > 0 ? "View pending offline sync queue" : "All local changes synced"}
+              >
                 <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: pendingSyncs > 0 ? 'var(--danger)' : 'var(--success)', display: 'inline-block' }}></span>
                 {pendingSyncs > 0 ? `${pendingSyncs} pending` : 'synced'}
               </span>
@@ -900,7 +1007,7 @@ export default function App() {
               outline: 'none'
             }}
           >
-            {Object.entries(CURRENCIES).map(([key, cur]) => (
+            {Object.keys(CURRENCIES).map((key) => (
               <option key={key} value={key} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
                 {key}
               </option>
@@ -991,16 +1098,26 @@ export default function App() {
                 ></div>
               </div>
 
-              <div className="stats-grid" style={{ marginBottom: '4px' }}>
+               <div className="stats-grid" style={{ marginBottom: '4px', gridTemplateColumns: 'repeat(3, 1fr)', display: 'grid' }}>
                 <div className="stat-item">
                   <span className="stat-label">Remaining</span>
-                  <span className="stat-val" style={{ color: budget - totalSpent >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    {currSymbol}{(budget - totalSpent).toFixed(2)}
+                  <span className="stat-val" style={{ color: budget - totalSpent >= 0 ? 'var(--success)' : 'var(--danger)', fontSize: '13px' }}>
+                    {currSymbol}{(budget - totalSpent).toFixed(0)}
+                  </span>
+                </div>
+                <div className="stat-item" style={{ alignItems: 'center' }}>
+                  <span className="stat-label">Health Score</span>
+                  <span className="stat-val" style={{ 
+                    color: healthScore >= 85 ? 'var(--success)' : (healthScore >= 50 ? 'var(--warning)' : 'var(--danger)'),
+                    fontWeight: '700',
+                    fontSize: '13px'
+                  }}>
+                    {healthScore}%
                   </span>
                 </div>
                 <div className="stat-item" style={{ alignItems: 'flex-end' }}>
-                  <span className="stat-label">Transactions</span>
-                  <span className="stat-val">{expenses.length}</span>
+                  <span className="stat-label">Trans.</span>
+                  <span className="stat-val" style={{ fontSize: '13px' }}>{expenses.length}</span>
                 </div>
               </div>
 
@@ -1024,7 +1141,7 @@ export default function App() {
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', fontSize: '12px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>💡 Safe Daily Spending Limit</span>
                 <span style={{ fontWeight: '600', color: 'var(--accent-primary)' }}>
-                  {currSymbol}{getSafeDailyLimit().toFixed(2)} / day
+                  {currSymbol}{safeDailyLimit.toFixed(2)} / day
                 </span>
               </div>
             </div>
@@ -1048,9 +1165,21 @@ export default function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '120px', overflowY: 'auto' }}>
                   {subscriptions.map(sub => {
                     const cat = CATEGORIES[sub.category] || CATEGORIES.Others;
+                    const countdown = getSubscriptionCountdown(sub.billingDay);
                     return (
-                      <div key={sub.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '4px 0' }}>
-                        <span style={{ color: 'var(--text-primary)' }}>{cat.icon} {sub.description}</span>
+                      <div key={sub.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>{cat.icon} {sub.description}</span>
+                          {countdown && (
+                            <span style={{
+                              fontSize: '9px',
+                              color: countdown.includes('today') || countdown.includes('tomorrow') ? 'var(--danger)' : 'var(--text-muted)',
+                              fontWeight: '600'
+                            }}>
+                              📅 Day {sub.billingDay} ({countdown})
+                            </span>
+                          )}
+                        </div>
                         <span style={{ color: 'var(--text-muted)' }}>-{currSymbol}{sub.amount.toFixed(2)}</span>
                       </div>
                     );
@@ -1384,114 +1513,18 @@ export default function App() {
                     const isOverCategoryBudget = catLimit && catLimit > 0 && catSpent > catLimit;
 
                     return (
-                      <div 
-                        key={exp.id} 
-                        style={{ 
-                          display: 'flex',
-                          width: '100%', 
-                          borderRadius: 'var(--radius-md)',
-                          overflow: 'hidden',
-                          position: 'relative'
-                        }}
-                      >
-                        {/* Wrapper for side-by-side sliding */}
-                        <div
-                          style={{
-                            display: 'flex',
-                            width: 'calc(100% + 74px)',
-                            transform: activeSwipeId === exp.id ? `translateX(${swipeX}px)` : (swipedItemId === exp.id ? 'translateX(-74px)' : 'translateX(0)'),
-                            transition: activeSwipeId === exp.id ? 'none' : 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                            flexShrink: 0
-                          }}
-                        >
-                          {/* Foreground Transaction Card */}
-                          <div 
-                            className="expense-item"
-                            style={{
-                              width: 'calc(100% - 74px)', // Matches parent visible width
-                              flexShrink: 0
-                            }}
-                            onTouchStart={(e) => handleTouchStart(e, exp.id)}
-                            onTouchMove={(e) => handleTouchMove(e, exp.id)}
-                            onTouchEnd={() => handleTouchEnd(exp.id)}
-                            onClick={() => {
-                              if (swipedItemId === exp.id) {
-                                setSwipedItemId(null);
-                              } else {
-                                setEditingExpense(exp);
-                                setActiveForm(true);
-                              }
-                            }}
-                          >
-                            <div className="expense-left">
-                              <div className="cat-icon-container" style={{ color: cat.color }}>
-                                {cat.icon}
-                              </div>
-                              <div className="expense-info">
-                                <span className="expense-desc" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  {exp.description}
-                                  {isOverCategoryBudget && (
-                                    <span 
-                                      style={{
-                                        fontSize: '9px',
-                                        color: 'var(--danger)',
-                                        background: 'rgba(244, 63, 94, 0.08)',
-                                        padding: '2px 6px',
-                                        borderRadius: '4px',
-                                        fontWeight: '700',
-                                        letterSpacing: '0.2px'
-                                      }}
-                                      title="Category Budget Exceeded"
-                                    >
-                                      Limit Exceeded
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="expense-date">
-                                  {new Date(exp.date).toLocaleDateString(undefined, { dateStyle: 'medium' })}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="expense-right">
-                              <span className="expense-amount" style={{ color: cat.color }}>
-                                -{currSymbol}{exp.amount.toFixed(2)}
-                              </span>
-                              {(exp.notes || exp.isSubscription) && (
-                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', maxWidth: '120px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', gap: '4px', alignItems: 'center' }}>
-                                  {exp.isSubscription && <span title="Recurring subscription">🔁</span>}
-                                  {exp.notes}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Red Swipe Delete Button */}
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              if (window.confirm("Are you sure you want to delete this expense?")) {
-                                await handleDeleteExpense(exp.id);
-                                setSwipedItemId(null);
-                              }
-                            }}
-                            style={{
-                              width: '74px',
-                              background: 'var(--danger)',
-                              color: 'white',
-                              border: 'none',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '11px',
-                              fontWeight: '700',
-                              cursor: 'pointer',
-                              flexShrink: 0
-                            }}
-                          >
-                            🗑️ Delete
-                          </button>
-                        </div>
-                      </div>
+                      <ExpenseListItem
+                        key={exp.id}
+                        expense={exp}
+                        currencySymbol={currSymbol}
+                        categoryInfo={cat}
+                        isOverCategoryBudget={isOverCategoryBudget}
+                        isSwiped={swipedItemId === exp.id}
+                        onSwipeOpen={handleSwipeOpen}
+                        onSwipeClose={handleSwipeClose}
+                        onClick={handleListItemClick}
+                        onDelete={handleListItemDelete}
+                      />
                     );
                   })}
                 </div>
@@ -1554,7 +1587,18 @@ export default function App() {
           categoryBudgets={categoryBudgets}
           onSave={handleSaveBudget}
           currencySymbol={currSymbol}
+          isPushSupported={isPushSupported}
+          isPushEnabled={isPushEnabled}
+          onTogglePush={handleTogglePush}
           onClose={() => setActiveBudgetModal(false)}
+        />
+      )}
+
+      {/* Offline Queue Inspector Modal */}
+      {showQueueInspector && (
+        <OfflineQueueModal
+          onClose={() => setShowQueueInspector(false)}
+          onQueueChanged={() => setPendingSyncs(getPendingSyncCount())}
         />
       )}
     </div>

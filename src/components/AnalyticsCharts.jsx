@@ -1,7 +1,7 @@
 import React from 'react';
 import { CATEGORIES } from '../utils/categorizer';
 
-export default function AnalyticsCharts({ expenses, currencySymbol, selectedCategory, onSelectCategory }) {
+function AnalyticsCharts({ expenses, currencySymbol, selectedCategory, onSelectCategory }) {
   // Aggregate expenses by category
   const totals = {};
   let grandTotal = 0;
@@ -136,3 +136,5 @@ export default function AnalyticsCharts({ expenses, currencySymbol, selectedCate
     </div>
   );
 }
+
+export default React.memo(AnalyticsCharts);

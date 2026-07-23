@@ -27,7 +27,7 @@ function getCustomRules() {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
     return data ? JSON.parse(data) : {};
-  } catch (e) {
+  } catch {
     return {};
   }
 }
@@ -71,12 +71,13 @@ export function suggestCategory(description) {
 
 /**
  * Fetches categorization from Gemini API as a fallback or enhancement
- * @param {string} description 
+ * @param {string} description
+ * @param {AbortSignal} [signal]
  * @returns {Promise<string>}
  */
-export async function suggestCategoryWithGemini(description) {
+export async function suggestCategoryWithGemini(description, signal) {
   if (!description || !description.trim()) return 'Others';
-  
+
   // First do local fast lookup
   const localGuess = suggestCategory(description);
   if (localGuess !== 'Others') {
@@ -96,7 +97,8 @@ export async function suggestCategoryWithGemini(description) {
             text: `Classify this expense description: "${description}". It must map to exactly one of these category keys: Food, Transport, Shopping, Bills, Entertainment, Health, Others. Return ONLY the category key name and absolutely nothing else.`
           }]
         }]
-      })
+      }),
+      signal
     });
 
     if (!response.ok) throw new Error('API request failed');

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CATEGORIES, suggestCategory, suggestCategoryWithGemini, learnCategory } from '../utils/categorizer';
 
-export default function ExpenseForm({ 
+function ExpenseForm({ 
   expense, 
   onSave, 
   onDelete, 
@@ -16,9 +16,11 @@ export default function ExpenseForm({
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [isSubscription, setIsSubscription] = useState(false);
+  const [billingDay, setBillingDay] = useState(1);
   const [suggestedCat, setSuggestedCat] = useState('Others');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const debounceTimer = useRef(null);
+  const abortControllerRef = useRef(null);
 
   // Load editing values
   useEffect(() => {
@@ -29,9 +31,18 @@ export default function ExpenseForm({
       setDate(expense.date || new Date().toISOString().split('T')[0]);
       setNotes(expense.notes || '');
       setIsSubscription(!!expense.isSubscription);
+      setBillingDay(expense.billingDay || 1);
       setSuggestedCat(expense.category || 'Others');
     }
   }, [expense]);
+
+  // Clean up timers and fetch calls on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
+  }, []);
 
   // Handle auto-categorization
   const handleDescriptionChange = (e) => {
@@ -45,13 +56,25 @@ export default function ExpenseForm({
 
     if (localSuggested === 'Others' && val.length > 3) {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+
       debounceTimer.current = setTimeout(async () => {
         setIsAiLoading(true);
-        const aiSuggested = await suggestCategoryWithGemini(val);
-        setIsAiLoading(false);
-        if (aiSuggested !== 'Others') {
-          setSuggestedCat(aiSuggested);
-          setCategory(aiSuggested);
+        try {
+          const aiSuggested = await suggestCategoryWithGemini(val, signal);
+          if (aiSuggested !== 'Others') {
+            setSuggestedCat(aiSuggested);
+            setCategory(aiSuggested);
+          }
+        } catch (err) {
+          if (err.name !== 'AbortError') {
+            console.error('Gemini auto-categorization failed', err);
+          }
+        } finally {
+          setIsAiLoading(false);
         }
       }, 600);
     }
@@ -71,7 +94,8 @@ export default function ExpenseForm({
       category,
       date,
       notes,
-      isSubscription
+      isSubscription,
+      billingDay: isSubscription ? parseInt(billingDay) || 1 : null
     });
   };
 
@@ -186,6 +210,25 @@ export default function ExpenseForm({
             </label>
           </div>
 
+          {/* Billing Day Selector */}
+          {isSubscription && (
+            <div className="form-group">
+              <label>Billing Day of Month (1 - 31)</label>
+              <input
+                type="number"
+                min="1"
+                max="31"
+                className="input-field"
+                value={billingDay}
+                onChange={(e) => {
+                  const val = Math.max(1, Math.min(31, parseInt(e.target.value) || 1));
+                  setBillingDay(val);
+                }}
+                required
+              />
+            </div>
+          )}
+
           <div className="form-group">
             <label>Notes (Optional)</label>
             <textarea
@@ -238,3 +281,5 @@ export default function ExpenseForm({
     </div>
   );
 }
+
+export default React.memo(ExpenseForm);
