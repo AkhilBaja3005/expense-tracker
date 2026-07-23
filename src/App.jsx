@@ -289,9 +289,15 @@ export default function App() {
                 applicationServerKey: urlBase64ToUint8Array(pubKey)
               });
 
-              // Extract credentials
-              const p256dh = btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('p256dh'))));
-              const auth = btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('auth'))));
+              // Extract credentials safely
+              const p256dhKey = subscription.getKey('p256dh');
+              const authKey = subscription.getKey('auth');
+              if (!p256dhKey || !authKey) {
+                throw new Error("Web Push subscription keys are missing or unsupported by the browser.");
+              }
+
+              const p256dh = btoa(String.fromCharCode.apply(null, new Uint8Array(p256dhKey)));
+              const auth = btoa(String.fromCharCode.apply(null, new Uint8Array(authKey)));
 
               // Store subscription in Supabase
               await supabase.from('push_subscriptions').upsert({
