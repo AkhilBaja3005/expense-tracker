@@ -100,6 +100,8 @@ export default function App() {
 
   // Swipe-to-delete gesture states
   const [swipedItemId, setSwipedItemId] = useState(null);
+  const [activeSwipeId, setActiveSwipeId] = useState(null);
+  const [swipeX, setSwipeX] = useState(0);
   const touchStartX = useRef(0);
   const touchCurrentX = useRef(0);
 
@@ -647,22 +649,39 @@ export default function App() {
       .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
   };
 
-  // Swipe-to-delete mobile touch handlers
+  // Swipe-to-delete mobile touch handlers (Fluid Real-time Drag-to-reveal)
   const handleTouchStart = (e, id) => {
+    if (swipedItemId && swipedItemId !== id) {
+      setSwipedItemId(null); // Reset previously swiped items
+    }
     touchStartX.current = e.touches[0].clientX;
     touchCurrentX.current = e.touches[0].clientX;
+    setActiveSwipeId(id);
+    setSwipeX(0);
   };
 
-  const handleTouchMove = (e) => {
-    touchCurrentX.current = e.touches[0].clientX;
+  const handleTouchMove = (e, id) => {
+    if (activeSwipeId !== id) return;
+    const diff = touchStartX.current - e.touches[0].clientX;
+    if (diff > 0) {
+      // Dragging left: follow finger up to 84px
+      const displacement = Math.min(diff, 84);
+      setSwipeX(-displacement);
+    } else {
+      // Dragging right: snap to 0
+      setSwipeX(0);
+    }
   };
 
   const handleTouchEnd = (id) => {
-    const diff = touchStartX.current - touchCurrentX.current;
-    if (diff > 50) {
-      setSwipedItemId(id); // Swipe left: show delete
-    } else if (diff < -30) {
-      setSwipedItemId(null); // Swipe right: hide delete
+    setActiveSwipeId(null);
+    // Snap open if swiped more than 40px left
+    if (swipeX <= -40) {
+      setSwipedItemId(id);
+      setSwipeX(-74);
+    } else {
+      setSwipedItemId(null);
+      setSwipeX(0);
     }
   };
 
@@ -1380,8 +1399,8 @@ export default function App() {
                           style={{
                             display: 'flex',
                             width: 'calc(100% + 74px)',
-                            transform: swipedItemId === exp.id ? 'translateX(-74px)' : 'translateX(0)',
-                            transition: 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                            transform: activeSwipeId === exp.id ? `translateX(${swipeX}px)` : (swipedItemId === exp.id ? 'translateX(-74px)' : 'translateX(0)'),
+                            transition: activeSwipeId === exp.id ? 'none' : 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
                             flexShrink: 0
                           }}
                         >
@@ -1393,7 +1412,7 @@ export default function App() {
                               flexShrink: 0
                             }}
                             onTouchStart={(e) => handleTouchStart(e, exp.id)}
-                            onTouchMove={(e) => handleTouchMove(e)}
+                            onTouchMove={(e) => handleTouchMove(e, exp.id)}
                             onTouchEnd={() => handleTouchEnd(exp.id)}
                             onClick={() => {
                               if (swipedItemId === exp.id) {
