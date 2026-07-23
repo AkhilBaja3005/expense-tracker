@@ -632,11 +632,6 @@ export default function App() {
 
   // Fetch AI Financial Insights from Gemini with smart offline fallback
   const fetchAiInsights = async () => {
-    if (isOffline) {
-      setAiInsights('💡 AI Insights are unavailable while offline. Please connect to the internet.');
-      return;
-    }
-
     setIsAiInsightsLoading(true);
     setAiInsights('');
     
@@ -647,7 +642,7 @@ export default function App() {
     });
 
     // Find highest spending category
-    let highestCat = 'N/A';
+    let highestCat = 'Others';
     let highestAmt = 0;
     Object.entries(categoryTotals).forEach(([cat, amt]) => {
       if (amt > highestAmt) {
@@ -655,6 +650,24 @@ export default function App() {
         highestCat = CATEGORIES[cat]?.name || cat;
       }
     });
+
+    if (isOffline) {
+      const limitStatus = budget - totalSpent;
+      const offlineTips = [
+        `💡 Running Offline - showing local diagnostics:`,
+        `• Highest spending: ${highestCat} at ${currSymbol}${highestAmt.toFixed(2)}.`,
+        totalSubscriptionCost > 0
+          ? `• Recurring bills: ${subscriptions.length} subscriptions totaling ${currSymbol}${totalSubscriptionCost.toFixed(2)}/mo.`
+          : `• Tip: Setting up recurring budgets for utilities helps forecast fixed costs.`,
+        limitStatus < 0
+          ? `• Warning: You are currently over budget by ${currSymbol}${Math.abs(limitStatus).toFixed(2)}.`
+          : `• Status: ${currSymbol}${limitStatus.toFixed(2)} remaining. Safe limit is ${currSymbol}${safeDailyLimit.toFixed(2)}/day.`
+      ];
+      
+      setAiInsights(offlineTips.join('\n'));
+      setIsAiInsightsLoading(false);
+      return;
+    }
 
     try {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
