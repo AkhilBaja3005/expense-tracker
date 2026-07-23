@@ -1,7 +1,7 @@
 import React from 'react';
 import { CATEGORIES } from '../utils/categorizer';
 
-export default function AnalyticsCharts({ expenses, currencySymbol }) {
+export default function AnalyticsCharts({ expenses, currencySymbol, selectedCategory, onSelectCategory }) {
   // Aggregate expenses by category
   const totals = {};
   let grandTotal = 0;
@@ -43,7 +43,6 @@ export default function AnalyticsCharts({ expenses, currencySymbol }) {
       const percentage = val / grandTotal;
       const strokeLength = percentage * circumference;
       const strokeOffset = currentOffset;
-      // SVG stroke-dashoffset counts backwards, so we subtract
       currentOffset -= strokeLength;
 
       return {
@@ -62,21 +61,29 @@ export default function AnalyticsCharts({ expenses, currencySymbol }) {
     <div className="analytics-section">
       <div className="chart-container">
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          {chartSegments.map((seg, i) => (
-            <circle
-              key={seg.key}
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="transparent"
-              stroke={seg.color}
-              strokeWidth="20"
-              strokeDasharray={`${seg.strokeLength} ${circumference}`}
-              strokeDashoffset={seg.strokeOffset}
-              transform={`rotate(-90 ${size / 2} ${size / 2})`}
-              style={{ transition: 'stroke-dashoffset 0.5s ease-out' }}
-            />
-          ))}
+          {chartSegments.map((seg) => {
+            const isChosen = selectedCategory === seg.key;
+            return (
+              <circle
+                key={seg.key}
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="transparent"
+                stroke={seg.color}
+                strokeWidth={isChosen ? "26" : "20"} // Highlight selected slice
+                strokeDasharray={`${seg.strokeLength} ${circumference}`}
+                strokeDashoffset={seg.strokeOffset}
+                transform={`rotate(-90 ${size / 2} ${size / 2})`}
+                style={{ 
+                  transition: 'all 0.3s ease',
+                  cursor: 'pointer',
+                  opacity: selectedCategory && !isChosen ? 0.4 : 1
+                }}
+                onClick={() => onSelectCategory(isChosen ? 'All' : seg.key)}
+              />
+            );
+          })}
           <circle
             cx={size / 2}
             cy={size / 2}
@@ -88,8 +95,8 @@ export default function AnalyticsCharts({ expenses, currencySymbol }) {
             y="48%"
             dominantBaseline="middle"
             textAnchor="middle"
-            fill="#9ca3af"
-            fontSize="12"
+            fill="var(--text-secondary)"
+            fontSize="11"
           >
             Total spent
           </text>
@@ -98,8 +105,8 @@ export default function AnalyticsCharts({ expenses, currencySymbol }) {
             y="62%"
             dominantBaseline="middle"
             textAnchor="middle"
-            fill="#f9fafb"
-            fontSize="16"
+            fill="var(--text-primary)"
+            fontSize="15"
             fontWeight="bold"
           >
             {currencySymbol}{grandTotal.toFixed(2)}
@@ -109,9 +116,18 @@ export default function AnalyticsCharts({ expenses, currencySymbol }) {
 
       <div className="legend-container">
         {chartSegments.map((seg) => (
-          <div key={seg.key} className="legend-item">
+          <div 
+            key={seg.key} 
+            className="legend-item"
+            style={{ 
+              cursor: 'pointer', 
+              opacity: selectedCategory && selectedCategory !== seg.key ? 0.4 : 1,
+              fontWeight: selectedCategory === seg.key ? 'bold' : 'normal'
+            }}
+            onClick={() => onSelectCategory(selectedCategory === seg.key ? 'All' : seg.key)}
+          >
             <span className="legend-color" style={{ backgroundColor: seg.color }}></span>
-            <span style={{ fontSize: '13px' }}>
+            <span style={{ fontSize: '12px' }}>
               {seg.icon} {seg.name} ({seg.percentage}%)
             </span>
           </div>

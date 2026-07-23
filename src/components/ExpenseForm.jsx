@@ -7,6 +7,7 @@ export default function ExpenseForm({ expense, onSave, onDelete, onClose, curren
   const [category, setCategory] = useState('Others');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
+  const [isSubscription, setIsSubscription] = useState(false);
   const [suggestedCat, setSuggestedCat] = useState('Others');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const debounceTimer = useRef(null);
@@ -19,6 +20,7 @@ export default function ExpenseForm({ expense, onSave, onDelete, onClose, curren
       setCategory(expense.category || 'Others');
       setDate(expense.date || new Date().toISOString().split('T')[0]);
       setNotes(expense.notes || '');
+      setIsSubscription(!!expense.isSubscription);
       setSuggestedCat(expense.category || 'Others');
     }
   }, [expense]);
@@ -63,7 +65,8 @@ export default function ExpenseForm({ expense, onSave, onDelete, onClose, curren
       amount: parseFloat(amount),
       category,
       date,
-      notes
+      notes,
+      isSubscription
     });
   };
 
@@ -92,7 +95,7 @@ export default function ExpenseForm({ expense, onSave, onDelete, onClose, curren
             <input
               type="text"
               className="input-field"
-              placeholder="e.g. Starbucks Coffee"
+              placeholder="e.g. Netflix Subscription"
               value={description}
               onChange={handleDescriptionChange}
               required
@@ -138,6 +141,19 @@ export default function ExpenseForm({ expense, onSave, onDelete, onClose, curren
               onChange={(e) => setDate(e.target.value)}
               required
             />
+          </div>
+
+          <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '10px', margin: '4px 0' }}>
+            <input
+              type="checkbox"
+              id="isSubscription"
+              checked={isSubscription}
+              onChange={(e) => setIsSubscription(e.target.checked)}
+              style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--accent-primary)' }}
+            />
+            <label htmlFor="isSubscription" style={{ cursor: 'pointer', userSelect: 'none' }}>
+              Is Recurring Subscription / Bill
+            </label>
           </div>
 
           <div className="form-group">

@@ -105,7 +105,8 @@ export async function syncOfflineQueue() {
             date: payload.date,
             notes: payload.notes,
             date_added: payload.dateAdded,
-            date_modified: payload.dateModified
+            date_modified: payload.dateModified,
+            is_subscription: !!payload.isSubscription
           });
         } else if (action === 'delete') {
           await supabase.from('expenses').delete().eq('id', payload.id);
@@ -121,7 +122,7 @@ export async function syncOfflineQueue() {
       }
     } catch (err) {
       console.error('Could not sync item, keeping in queue:', err);
-      remaining.push(task); // Keep task if server still unreachable
+      remaining.push(task);
     }
   }
 
@@ -132,7 +133,6 @@ export async function syncOfflineQueue() {
 export async function syncFromCloud(userId, onSyncDone) {
   if (!userId) return;
   
-  // Try to sync offline modifications first
   await syncOfflineQueue();
 
   try {
@@ -154,7 +154,8 @@ export async function syncFromCloud(userId, onSyncDone) {
         date: item.date,
         notes: item.notes,
         dateAdded: item.date_added,
-        dateModified: item.date_modified
+        dateModified: item.date_modified,
+        isSubscription: !!item.is_subscription
       }));
       saveExpenses(formattedExpenses, userId);
     }
@@ -188,12 +189,10 @@ export async function addExpense(expense, userId) {
     dateModified: now
   };
 
-  // Save locally
   const localExpenses = getExpenses(userId);
   localExpenses.unshift(newExpense);
   saveExpenses(localExpenses, userId);
 
-  // Sync / Queue
   if (userId) {
     try {
       const { error } = await supabase.from('expenses').upsert({
@@ -205,7 +204,8 @@ export async function addExpense(expense, userId) {
         date: newExpense.date,
         notes: newExpense.notes,
         date_added: newExpense.dateAdded,
-        date_modified: newExpense.dateModified
+        date_modified: newExpense.dateModified,
+        is_subscription: !!newExpense.isSubscription
       });
       if (error) throw error;
     } catch (e) {
@@ -242,7 +242,8 @@ export async function updateExpense(id, updatedData, userId) {
         date: updatedExpense.date,
         notes: updatedExpense.notes,
         date_added: updatedExpense.dateAdded,
-        date_modified: updatedExpense.dateModified
+        date_modified: updatedExpense.dateModified,
+        is_subscription: !!updatedExpense.isSubscription
       });
       if (error) throw error;
     } catch (e) {

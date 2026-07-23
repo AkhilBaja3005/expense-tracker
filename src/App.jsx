@@ -77,6 +77,10 @@ export default function App() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
+  // AI Savings Advisor state
+  const [aiInsights, setAiInsights] = useState('');
+  const [isAiInsightsLoading, setIsAiInsightsLoading] = useState(false);
+
   const [notificationStatus, setNotificationStatus] = useState(() => {
     return 'Notification' in window ? Notification.permission : 'unsupported';
   });
@@ -85,7 +89,6 @@ export default function App() {
   useEffect(() => {
     const goOnline = async () => {
       setIsOffline(false);
-      // Auto-flush queue
       await syncOfflineQueue();
       if (user?.id) triggerCloudSync(user.id);
     };
@@ -163,7 +166,7 @@ export default function App() {
     }
   };
 
-  // Setup Google Login & Clean up Service Workers (Unregister to fix cached 404s)
+  // Setup Google Login & SW cleanup
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then((registrations) => {
@@ -203,13 +206,14 @@ export default function App() {
   };
 
   const handleExportCSV = () => {
-    const headers = ['Description', 'Amount', 'Category', 'Date', 'Notes', 'Date Added', 'Date Modified'];
+    const headers = ['Description', 'Amount', 'Category', 'Date', 'Notes', 'Recurring Bill', 'Date Added', 'Date Modified'];
     const rows = expenses.map(exp => [
       `"${exp.description.replace(/"/g, '""')}"`,
       exp.amount,
       CATEGORIES[exp.category]?.name || exp.category,
       exp.date,
       `"${(exp.notes || '').replace(/"/g, '""')}"`,
+      exp.isSubscription ? 'Yes' : 'No',
       exp.dateAdded,
       exp.dateModified
     ]);
@@ -229,6 +233,58 @@ export default function App() {
   const currSymbol = CURRENCIES[currency].symbol;
   const totalSpent = expenses.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
   const budgetProgress = Math.min((totalSpent / budget) * 100, 100);
+
+  // Safe Daily Limit Calculation
+  const getSafeDailyLimit = () => {
+    const today = new Date();
+    const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const daysLeft = lastDayOfMonth.getDate() - today.getDate() + 1;
+    const remaining = budget - totalSpent;
+    return remaining > 0 ? remaining / daysLeft : 0;
+  };
+
+  // Smart Subscription Calculations
+  const subscriptions = expenses.filter(e => !!e.isSubscription);
+  const totalSubscriptionCost = subscriptions.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+
+  // Fetch AI Financial Insights from Gemini
+  const fetchAiInsights = async () => {
+    setIsAiInsightsLoading(true);
+    setAiInsights('');
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 'AQ.Ab8RN6Kzvrqkj0dt7I38FY9ouxPrG9RLkZ2uUwq8TfS-G8yLhA';
+      const categoryTotals = {};
+      expenses.forEach(e => {
+        categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount;
+      });
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `Analyze this monthly budget status:
+              - Overall Budget: ${currSymbol}${budget}
+              - Total Spent: ${currSymbol}${totalSpent}
+              - Recurring Bills Total: ${currSymbol}${totalSubscriptionCost}
+              - Spending per Category: ${JSON.stringify(categoryTotals)}
+              Please provide exactly 3 concise, bulleted, actionable savings suggestions in clean text (no markdown formatting, no stars). Keep it brief.`
+            }]
+          }]
+        })
+      });
+
+      if (!response.ok) throw new Error('Insights failed');
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      setAiInsights(text || 'Could not fetch insights. Try again.');
+    } catch (e) {
+      console.error(e);
+      setAiInsights('Failed to load insights. Please verify your connection.');
+    }
+    setIsAiInsightsLoading(false);
+  };
 
   const getProgressBarClass = (prog) => {
     if (prog >= 90) return 'progress-bar danger';
@@ -297,14 +353,10 @@ export default function App() {
   // Filter & Sort expenses logic
   const getFilteredExpenses = () => {
     return expenses.filter((exp) => {
-      // 1. Search Query filter
       const matchesSearch = exp.description.toLowerCase().includes(searchQuery.toLowerCase()) || 
         (exp.notes && exp.notes.toLowerCase().includes(searchQuery.toLowerCase()));
-      
-      // 2. Category tab filter
       const matchesCategory = categoryFilter === 'All' || exp.category === categoryFilter;
 
-      // 3. Date window filter
       let matchesDate = true;
       const expDate = new Date(exp.date);
       const today = new Date();
@@ -457,7 +509,7 @@ export default function App() {
       <main className="content">
         <div className="desktop-grid">
           
-          {/* LEFT SIDEBAR */}
+          {/* LEFT SIDEBAR (Budget, Analytics & Subscription Lists) */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {/* Overall Budget Status */}
             <div className="glass-card budget-summary">
@@ -475,7 +527,7 @@ export default function App() {
                 ></div>
               </div>
 
-              <div className="stats-grid">
+              <div className="stats-grid" style={{ marginBottom: '4px' }}>
                 <div className="stat-item">
                   <span className="stat-label">Remaining</span>
                   <span className="stat-val" style={{ color: budget - totalSpent >= 0 ? 'var(--success)' : 'var(--danger)' }}>
@@ -487,7 +539,40 @@ export default function App() {
                   <span className="stat-val">{expenses.length}</span>
                 </div>
               </div>
+
+              {/* Safe Daily Spending Limit */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', fontSize: '12px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>💡 Safe Daily Spending Limit</span>
+                <span style={{ fontWeight: '600', color: 'var(--accent-primary)' }}>
+                  {currSymbol}{getSafeDailyLimit().toFixed(2)} / day
+                </span>
+              </div>
             </div>
+
+            {/* Smart Subscriptions / Recurring Bills Card */}
+            {subscriptions.length > 0 && (
+              <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-secondary)' }}>
+                    🔁 Fixed Subscriptions
+                  </h3>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--accent-primary)' }}>
+                    {currSymbol}{totalSubscriptionCost.toFixed(2)}/mo
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '120px', overflowY: 'auto' }}>
+                  {subscriptions.map(sub => {
+                    const cat = CATEGORIES[sub.category] || CATEGORIES.Others;
+                    return (
+                      <div key={sub.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '4px 0' }}>
+                        <span style={{ color: 'var(--text-primary)' }}>{cat.icon} {sub.description}</span>
+                        <span style={{ color: 'var(--text-muted)' }}>-{currSymbol}{sub.amount.toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Category Budgets Warnings list */}
             {Object.keys(categoryBudgets).length > 0 && (
@@ -522,12 +607,74 @@ export default function App() {
               </div>
             )}
 
-            {/* Distribution chart */}
-            <div className="glass-card">
-              <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '10px', color: 'var(--text-secondary)' }}>
-                Distribution ({currency})
-              </h3>
-              <AnalyticsCharts expenses={expenses} currencySymbol={currSymbol} />
+            {/* Distribution chart & AI Savings Advisor */}
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-secondary)' }}>
+                  Distribution ({currency})
+                </h3>
+                <button
+                  onClick={fetchAiInsights}
+                  disabled={isAiInsightsLoading}
+                  style={{
+                    background: 'var(--accent-glow)',
+                    border: '1px solid var(--accent-primary)',
+                    color: 'var(--accent-primary)',
+                    padding: '4px 10px',
+                    borderRadius: '20px',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: '600'
+                  }}
+                >
+                  {isAiInsightsLoading ? '💡 Analyzing...' : '💡 AI Insights'}
+                </button>
+              </div>
+
+              <AnalyticsCharts 
+                expenses={expenses} 
+                currencySymbol={currSymbol} 
+                selectedCategory={categoryFilter}
+                onSelectCategory={setCategoryFilter}
+              />
+
+              {/* AI Insights Display */}
+              {aiInsights && (
+                <div style={{ 
+                  background: 'rgba(255,255,255,0.02)', 
+                  border: '1px solid var(--glass-border)', 
+                  borderRadius: '8px', 
+                  padding: '12px',
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)',
+                  lineHeight: '1.6'
+                }}>
+                  <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: '6px' }}>
+                    Gemini Financial Advice:
+                  </strong>
+                  <div style={{ whiteSpace: 'pre-wrap' }}>{aiInsights}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Backup Action card */}
+            <div className="glass-card" style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                onClick={handleExportCSV}
+                style={{
+                  flex: 1,
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--glass-border)',
+                  color: 'var(--text-primary)',
+                  padding: '10px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: '600'
+                }}
+              >
+                📥 Export CSV Backup
+              </button>
             </div>
           </div>
 
@@ -676,8 +823,9 @@ export default function App() {
                           <span className="expense-amount" style={{ color: cat.color }}>
                             -{currSymbol}{exp.amount.toFixed(2)}
                           </span>
-                          {exp.notes && (
-                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', maxWidth: '120px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {(exp.notes || exp.isSubscription) && (
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', maxWidth: '120px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                              {exp.isSubscription && <span title="Recurring subscription">🔁</span>}
                               {exp.notes}
                             </span>
                           )}
