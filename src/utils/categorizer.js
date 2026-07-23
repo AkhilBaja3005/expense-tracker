@@ -88,6 +88,7 @@ export async function suggestCategoryWithGemini(description, signal) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     const response = await fetch(url, {
       method: 'POST',
+      signal,
       headers: {
         'Content-Type': 'application/json'
       },
@@ -97,8 +98,7 @@ export async function suggestCategoryWithGemini(description, signal) {
             text: `Classify this expense description: "${description}". It must map to exactly one of these category keys: Food, Transport, Shopping, Bills, Entertainment, Health, Others. Return ONLY the category key name and absolutely nothing else.`
           }]
         }]
-      }),
-      signal
+      })
     });
 
     if (!response.ok) throw new Error('API request failed');
@@ -110,7 +110,9 @@ export async function suggestCategoryWithGemini(description, signal) {
       return text;
     }
   } catch (e) {
-    console.error('Gemini categorization failed, using fallback', e);
+    if (e.name !== 'AbortError') {
+      console.error('Gemini categorization failed, using fallback', e);
+    }
   }
 
   return 'Others';
