@@ -80,6 +80,9 @@ export default function App() {
   // Mobile Tab State
   const [activeTab, setActiveTab] = useState('dashboard');
 
+  // Chart Period State ('today', 'week', 'month', 'all')
+  const [chartPeriod, setChartPeriod] = useState('all');
+
   // Daily tracker reminder
   const [dailyReminder, setDailyReminder] = useState('');
 
@@ -545,6 +548,32 @@ export default function App() {
 
   const filteredExpenses = getFilteredExpenses();
 
+  // Get expenses specifically for selected chart period breakdown
+  const getChartExpenses = () => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    oneWeekAgo.setHours(0,0,0,0);
+    const currentMonthStart = new Date();
+    currentMonthStart.setDate(1);
+    currentMonthStart.setHours(0,0,0,0);
+
+    return expenses.filter(e => {
+      if (chartPeriod === 'today') {
+        return e.date === todayStr;
+      }
+      if (chartPeriod === 'week') {
+        return new Date(e.date) >= oneWeekAgo;
+      }
+      if (chartPeriod === 'month') {
+        return new Date(e.date) >= currentMonthStart;
+      }
+      return true; // 'all'
+    });
+  };
+
+  const chartExpenses = getChartExpenses();
+
   // Login Screen
   if (!user) {
     return (
@@ -851,8 +880,33 @@ export default function App() {
                 </button>
               </div>
 
+              {/* Period Switcher Tabs */}
+              <div style={{ display: 'flex', gap: '6px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px', flexWrap: 'wrap' }}>
+                {['today', 'week', 'month', 'all'].map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setChartPeriod(p)}
+                    style={{
+                      background: chartPeriod === p ? 'var(--accent-glow)' : 'none',
+                      border: '1px solid',
+                      borderColor: chartPeriod === p ? 'var(--accent-primary)' : 'var(--glass-border)',
+                      color: chartPeriod === p ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                      padding: '4px 10px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      textTransform: 'capitalize',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    {p === 'all' ? 'All Time' : p}
+                  </button>
+                ))}
+              </div>
+
               <AnalyticsCharts 
-                expenses={expenses} 
+                expenses={chartExpenses} 
                 currencySymbol={currSymbol} 
                 selectedCategory={categoryFilter}
                 onSelectCategory={setCategoryFilter}
