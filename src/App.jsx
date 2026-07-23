@@ -15,6 +15,22 @@ import {
 } from './utils/storage';
 import { CATEGORIES } from './utils/categorizer';
 import ExpenseForm from './components/ExpenseForm';
+import { supabase } from './utils/supabaseClient';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/\-/g, '+')
+    .replace(/_/g, '/');
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
 import AnalyticsCharts from './components/AnalyticsCharts';
 import BudgetModal from './components/BudgetModal';
 
@@ -251,19 +267,60 @@ export default function App() {
     }
   };
 
-  // Setup Google Login & SW cleanup
+  // Setup Google Login & PWA Web Push Service Worker
   useEffect(() => {
+    // 1. Service Worker registration and Web Push subscription
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then((registrations) => {
-        for (let registration of registrations) {
-          registration.unregister().then(() => {
-            console.log('SW unregistered successfully');
-            window.location.reload();
-          });
-        }
-      });
+      navigator.serviceWorker.register('/sw.js')
+        .then(async (reg) => {
+          console.log('SW registered successfully:', reg);
+          
+          if (user?.id) {
+            try {
+              // VAPID Public Key
+              const pubKey = 'BNT0tNWiED6i5vaUz_yFbNY4tEJIP9Rs1G4HeVcrT7wK9GcDNc2lUR7oBJYB91x86jfpk_JTIx8pYlB4bx7qn9w';
+              const subscription = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(pubKey)
+              });
+
+              // Extract credentials
+              const p256dh = btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('p256dh'))));
+              const auth = btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('auth'))));
+
+              // Store subscription in Supabase
+              await supabase.from('push_subscriptions').upsert({
+                user_id: user.id,
+                endpoint: subscription.endpoint,
+                p256dh,
+                auth
+              });
+              console.log('PWA Push Subscription saved to Supabase');
+            } catch (err) {
+              console.log('Web Push subscription registration failed:', err);
+            }
+          }
+        })
+        .catch((err) => {
+          console.error('SW registration failed:', err);
+        });
     }
 
+    // 2. Version redeployment test notification notifier
+    const CURRENT_VERSION = 'v2.2.0';
+    const lastVersion = localStorage.getItem('expenser_app_version');
+    if (lastVersion && lastVersion !== CURRENT_VERSION) {
+      if (Notification.permission === 'granted') {
+        new Notification("Expense Tracker Updated! 🚀", {
+          body: `New version ${CURRENT_VERSION} has been successfully redeployed and is now live.`,
+          icon: "/icon.svg",
+          badge: "/icon.svg"
+        });
+      }
+    }
+    localStorage.setItem('expenser_app_version', CURRENT_VERSION);
+
+    // 3. Initialize Google login button if not logged in
     if (!user && typeof window.google !== 'undefined') {
       window.google.accounts.id.initialize({
         client_id: "381822591589-cnbic33i53ra1puqr4jkj2hrqreub02e.apps.googleusercontent.com",
