@@ -566,41 +566,22 @@ export default function App() {
             title="Sign out"
           />
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <h1 style={{ fontSize: '16px', lineHeight: '1.2' }}>Expense Tracker</h1>
+            <h1 style={{ fontSize: '15px', lineHeight: '1.2' }}>Expense Tracker</h1>
             {isSyncing ? (
               <span className="sync-skeleton" style={{ fontSize: '9px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--accent-primary)', display: 'inline-block' }}></span>
-                syncing cloud...
+                syncing...
               </span>
             ) : (
               <span style={{ fontSize: '9px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--success)', display: 'inline-block' }}></span>
-                cloud synced
+                synced
               </span>
             )}
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Manual Cloud Sync Button */}
-          <button
-            onClick={() => triggerCloudSync(user.id)}
-            disabled={isSyncing}
-            style={{
-              background: 'var(--glass-bg)',
-              border: '1px solid var(--glass-border)',
-              color: 'var(--text-primary)',
-              padding: '6px 10px',
-              borderRadius: '20px',
-              cursor: 'pointer',
-              fontSize: '11px',
-              fontWeight: '600',
-              opacity: isSyncing ? 0.6 : 1
-            }}
-          >
-            {isSyncing ? '🔄 Syncing...' : '🔄 Sync'}
-          </button>
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <select 
             value={currency} 
             onChange={handleCurrencyChange}
@@ -618,25 +599,32 @@ export default function App() {
           >
             {Object.entries(CURRENCIES).map(([key, cur]) => (
               <option key={key} value={key} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
-                {cur.name}
+                {key}
               </option>
             ))}
           </select>
 
-          <button 
-            onClick={() => setActiveBudgetModal(true)} 
+          {/* Manual Cloud Sync Button (Sleek Circular Icon Button) */}
+          <button
+            onClick={() => triggerCloudSync(user.id)}
+            disabled={isSyncing}
             style={{
               background: 'var(--glass-bg)',
               border: '1px solid var(--glass-border)',
               color: 'var(--text-primary)',
-              padding: '6px 12px',
-              borderRadius: '20px',
+              width: '28px',
+              height: '28px',
+              borderRadius: '50%',
               cursor: 'pointer',
               fontSize: '11px',
-              fontWeight: '600'
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: isSyncing ? 0.6 : 1
             }}
+            title="Force cloud sync"
           >
-            Budgets
+            🔄
           </button>
         </div>
       </header>
@@ -669,7 +657,24 @@ export default function App() {
             {/* Overall Budget Status */}
             <div className="glass-card budget-summary">
               <div className="budget-row">
-                <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Overall Limit</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  Overall Limit
+                  <button 
+                    onClick={() => setActiveBudgetModal(true)}
+                    style={{
+                      background: 'var(--bg-tertiary)',
+                      border: '1px solid var(--glass-border)',
+                      color: 'var(--accent-primary)',
+                      cursor: 'pointer',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}
+                  >
+                    Edit
+                  </button>
+                </span>
                 <span className="budget-amount">
                   {currSymbol}{totalSpent.toFixed(2)} <span>/ {currSymbol}{budget.toFixed(2)}</span>
                 </span>
