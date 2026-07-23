@@ -1368,105 +1368,109 @@ export default function App() {
                       <div 
                         key={exp.id} 
                         style={{ 
-                          position: 'relative', 
-                          overflow: 'hidden', 
+                          display: 'flex',
+                          width: '100%', 
                           borderRadius: 'var(--radius-md)',
-                          width: '100%' 
+                          overflow: 'hidden',
+                          position: 'relative'
                         }}
                       >
-                        {/* Background Red Swipe Delete Button */}
-                        <button
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            if (window.confirm("Are you sure you want to delete this expense?")) {
-                              await handleDeleteExpense(exp.id);
-                              setSwipedItemId(null);
-                            }
-                          }}
+                        {/* Wrapper for side-by-side sliding */}
+                        <div
                           style={{
-                            position: 'absolute',
-                            right: 0,
-                            top: 0,
-                            bottom: 0,
-                            width: '74px',
-                            background: 'var(--danger)',
-                            color: 'white',
-                            border: 'none',
-                            borderTopRightRadius: 'var(--radius-md)',
-                            borderBottomRightRadius: 'var(--radius-md)',
                             display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '11px',
-                            fontWeight: '700',
-                            cursor: 'pointer',
-                            zIndex: 1
-                          }}
-                        >
-                          🗑️ Delete
-                        </button>
-
-                        {/* Foreground Swipable Transaction Card */}
-                        <div 
-                          className="expense-item"
-                          style={{
+                            width: 'calc(100% + 74px)',
                             transform: swipedItemId === exp.id ? 'translateX(-74px)' : 'translateX(0)',
                             transition: 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                            position: 'relative',
-                            zIndex: 2
-                          }}
-                          onTouchStart={(e) => handleTouchStart(e, exp.id)}
-                          onTouchMove={(e) => handleTouchMove(e)}
-                          onTouchEnd={() => handleTouchEnd(exp.id)}
-                          onClick={() => {
-                            if (swipedItemId === exp.id) {
-                              setSwipedItemId(null);
-                            } else {
-                              setEditingExpense(exp);
-                              setActiveForm(true);
-                            }
+                            flexShrink: 0
                           }}
                         >
-                          <div className="expense-left">
-                            <div className="cat-icon-container" style={{ color: cat.color }}>
-                              {cat.icon}
+                          {/* Foreground Transaction Card */}
+                          <div 
+                            className="expense-item"
+                            style={{
+                              width: 'calc(100% - 74px)', // Matches parent visible width
+                              flexShrink: 0
+                            }}
+                            onTouchStart={(e) => handleTouchStart(e, exp.id)}
+                            onTouchMove={(e) => handleTouchMove(e)}
+                            onTouchEnd={() => handleTouchEnd(exp.id)}
+                            onClick={() => {
+                              if (swipedItemId === exp.id) {
+                                setSwipedItemId(null);
+                              } else {
+                                setEditingExpense(exp);
+                                setActiveForm(true);
+                              }
+                            }}
+                          >
+                            <div className="expense-left">
+                              <div className="cat-icon-container" style={{ color: cat.color }}>
+                                {cat.icon}
+                              </div>
+                              <div className="expense-info">
+                                <span className="expense-desc" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  {exp.description}
+                                  {isOverCategoryBudget && (
+                                    <span 
+                                      style={{
+                                        fontSize: '9px',
+                                        color: 'var(--danger)',
+                                        background: 'rgba(244, 63, 94, 0.08)',
+                                        padding: '2px 6px',
+                                        borderRadius: '4px',
+                                        fontWeight: '700',
+                                        letterSpacing: '0.2px'
+                                      }}
+                                      title="Category Budget Exceeded"
+                                    >
+                                      Limit Exceeded
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="expense-date">
+                                  {new Date(exp.date).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                                </span>
+                              </div>
                             </div>
-                            <div className="expense-info">
-                              <span className="expense-desc" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                {exp.description}
-                                {isOverCategoryBudget && (
-                                  <span 
-                                    style={{
-                                      fontSize: '9px',
-                                      color: 'var(--danger)',
-                                      background: 'rgba(244, 63, 94, 0.08)',
-                                      padding: '2px 6px',
-                                      borderRadius: '4px',
-                                      fontWeight: '700',
-                                      letterSpacing: '0.2px'
-                                    }}
-                                    title="Category Budget Exceeded"
-                                  >
-                                    Limit Exceeded
-                                  </span>
-                                )}
+                            <div className="expense-right">
+                              <span className="expense-amount" style={{ color: cat.color }}>
+                                -{currSymbol}{exp.amount.toFixed(2)}
                               </span>
-                              <span className="expense-date">
-                                {new Date(exp.date).toLocaleDateString(undefined, { dateStyle: 'medium' })}
-                              </span>
+                              {(exp.notes || exp.isSubscription) && (
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', maxWidth: '120px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                  {exp.isSubscription && <span title="Recurring subscription">🔁</span>}
+                                  {exp.notes}
+                                </span>
+                              )}
                             </div>
                           </div>
-                          <div className="expense-right">
-                            <span className="expense-amount" style={{ color: cat.color }}>
-                              -{currSymbol}{exp.amount.toFixed(2)}
-                            </span>
-                            {(exp.notes || exp.isSubscription) && (
-                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', maxWidth: '120px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', gap: '4px', alignItems: 'center' }}>
-                                {exp.isSubscription && <span title="Recurring subscription">🔁</span>}
-                                {exp.notes}
-                              </span>
-                            )}
-                          </div>
+
+                          {/* Red Swipe Delete Button */}
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (window.confirm("Are you sure you want to delete this expense?")) {
+                                await handleDeleteExpense(exp.id);
+                                setSwipedItemId(null);
+                              }
+                            }}
+                            style={{
+                              width: '74px',
+                              background: 'var(--danger)',
+                              color: 'white',
+                              border: 'none',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              flexShrink: 0
+                            }}
+                          >
+                            🗑️ Delete
+                          </button>
                         </div>
                       </div>
                     );
