@@ -551,13 +551,11 @@ h1, h2, h3, h4, .budget-amount, .section-title span {
 /* Category Filters Horizontal Layout (Fixed Wrapping) */
 .filter-tabs-container {
   display: flex;
+  flex-wrap: wrap; /* Wrap elements onto multiple lines line-by-line */
   gap: 8px;
-  overflow-x: auto;
-  white-space: nowrap;
   width: 100%;
   max-width: 100%;
   padding-bottom: 6px;
-  scrollbar-width: thin; 
 }
 
 .filter-tabs-container::-webkit-scrollbar {
