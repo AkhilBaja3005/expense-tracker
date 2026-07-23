@@ -252,7 +252,7 @@ export default function App() {
     Notification.requestPermission().then((permission) => {
       setNotificationStatus(permission);
       if (permission === 'granted') {
-        new Notification("Expenser PWA", {
+        new Notification("Expense Tracker", {
           body: "Notifications active! We will remind you to log your daily expenses.",
           icon: "/icon.svg"
         });
@@ -519,7 +519,7 @@ export default function App() {
         <div style={{ textAlign: 'center' }}>
           <img src="/icon.svg" alt="logo" style={{ width: '80px', height: '80px', marginBottom: '16px' }} />
           <h1 style={{ fontSize: '28px', fontWeight: '700', marginBottom: '8px', background: 'linear-gradient(135deg, #22d3ee, #06b6d4)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            Expenser PWA
+            Expense Tracker
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
             A premium dashboard to manage your spending with smart AI auto-categorization.
@@ -553,7 +553,7 @@ export default function App() {
             title="Sign out"
           />
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <h1 style={{ fontSize: '16px', lineHeight: '1.2' }}>Expenser</h1>
+            <h1 style={{ fontSize: '16px', lineHeight: '1.2' }}>Expense Tracker</h1>
             {isSyncing ? (
               <span style={{ fontSize: '9px', color: 'var(--accent-primary)' }}>syncing cloud...</span>
             ) : (
