@@ -10,7 +10,8 @@ import {
   saveCloudSettings,
   getCategoryBudgets,
   saveCategoryBudgets,
-  syncOfflineQueue
+  syncOfflineQueue,
+  getPendingSyncCount
 } from './utils/storage';
 import { CATEGORIES } from './utils/categorizer';
 import ExpenseForm from './components/ExpenseForm';
@@ -64,6 +65,7 @@ export default function App() {
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [pendingSyncs, setPendingSyncs] = useState(0);
   
   const [activeForm, setActiveForm] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
@@ -108,6 +110,7 @@ export default function App() {
         });
       }
       setIsSyncing(false);
+      setPendingSyncs(getPendingSyncCount());
       setShowSyncSuccess(true);
       setTimeout(() => setShowSyncSuccess(false), 3000);
     };
@@ -194,6 +197,7 @@ export default function App() {
       }
     });
     setIsSyncing(false);
+    setPendingSyncs(getPendingSyncCount());
   };
 
   const handleCredentialResponse = (response) => {
@@ -222,6 +226,7 @@ export default function App() {
     setExpenses(getExpenses(userId));
     setBudget(getBudget(userId));
     setCategoryBudgets(getCategoryBudgets(userId));
+    setPendingSyncs(getPendingSyncCount());
 
     const savedCurrency = localStorage.getItem(`expenser_currency_${userId}`);
     if (savedCurrency && CURRENCIES[savedCurrency]) {
@@ -544,6 +549,7 @@ export default function App() {
       await addExpense(data, userId);
     }
     setExpenses(getExpenses(userId));
+    setPendingSyncs(getPendingSyncCount());
     setActiveForm(false);
     setEditingExpense(null);
 
@@ -573,6 +579,7 @@ export default function App() {
   const handleDeleteExpense = async (id) => {
     await deleteExpense(id, userId);
     setExpenses(getExpenses(userId));
+    setPendingSyncs(getPendingSyncCount());
     setActiveForm(false);
     setEditingExpense(null);
   };
@@ -726,9 +733,9 @@ export default function App() {
                 syncing...
               </span>
             ) : (
-              <span style={{ fontSize: '9px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--success)', display: 'inline-block' }}></span>
-                synced
+              <span style={{ fontSize: '9px', color: pendingSyncs > 0 ? 'var(--danger)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: pendingSyncs > 0 ? '600' : '400' }}>
+                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: pendingSyncs > 0 ? 'var(--danger)' : 'var(--success)', display: 'inline-block' }}></span>
+                {pendingSyncs > 0 ? `${pendingSyncs} pending` : 'synced'}
               </span>
             )}
           </div>
@@ -1301,6 +1308,11 @@ export default function App() {
           onSave={handleSaveExpense}
           onDelete={handleDeleteExpense}
           currencySymbol={currSymbol}
+          categoryBudgets={categoryBudgets}
+          categorySpendings={Object.keys(CATEGORIES).reduce((acc, key) => {
+            acc[key] = getCategorySpending(key);
+            return acc;
+          }, {})}
           onClose={() => {
             setActiveForm(false);
             setEditingExpense(null);

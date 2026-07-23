@@ -53,6 +53,15 @@ export function getCategoryBudgets(userId) {
   }
 }
 
+export function getPendingSyncCount() {
+  try {
+    const queue = localStorage.getItem(SYNC_QUEUE_KEY);
+    return queue ? JSON.parse(queue).length : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
 export function saveCategoryBudgets(budgets, userId) {
   try {
     localStorage.setItem(getUserKey(CAT_BUDGETS_STORAGE_KEY, userId), JSON.stringify(budgets));

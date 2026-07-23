@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CATEGORIES, suggestCategory, suggestCategoryWithGemini, learnCategory } from '../utils/categorizer';
 
-export default function ExpenseForm({ expense, onSave, onDelete, onClose, currencySymbol = '$' }) {
+export default function ExpenseForm({ 
+  expense, 
+  onSave, 
+  onDelete, 
+  onClose, 
+  currencySymbol = '$', 
+  categoryBudgets = {}, 
+  categorySpendings = {} 
+}) {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('Others');
@@ -31,12 +39,10 @@ export default function ExpenseForm({ expense, onSave, onDelete, onClose, curren
     setDescription(val);
     if (expense) return; // Do not auto-categorize editing entries
 
-    // 1. Immediately apply fast keyword categorization
     const localSuggested = suggestCategory(val);
     setSuggestedCat(localSuggested);
     setCategory(localSuggested);
 
-    // 2. Debounce and run Gemini fallback classification if local matched to Others
     if (localSuggested === 'Others' && val.length > 3) {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
       debounceTimer.current = setTimeout(async () => {
@@ -55,7 +61,6 @@ export default function ExpenseForm({ expense, onSave, onDelete, onClose, curren
     e.preventDefault();
     if (!description.trim() || !amount) return;
 
-    // Check if user changed the auto-suggested category, so we learn the mapping
     if (!expense && category !== suggestedCat) {
       learnCategory(description, category);
     }
@@ -78,6 +83,15 @@ export default function ExpenseForm({ expense, onSave, onDelete, onClose, curren
       timeStyle: 'short'
     });
   };
+
+  // Proactive Over-Budget warning calculation
+  const currentSpent = categorySpendings[category] || 0;
+  const limit = categoryBudgets[category] || 0;
+  const originalAmt = expense && expense.category === category ? parseFloat(expense.amount) || 0 : 0;
+  const entryAmt = parseFloat(amount) || 0;
+  const projectedTotal = currentSpent - originalAmt + entryAmt;
+  const isProjectedOver = limit > 0 && projectedTotal > limit;
+  const remainingBeforeEntry = limit - (currentSpent - originalAmt);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -130,6 +144,22 @@ export default function ExpenseForm({ expense, onSave, onDelete, onClose, curren
                 </button>
               ))}
             </div>
+            
+            {/* Inline Proactive Budget Alert */}
+            {isProjectedOver && (
+              <div style={{
+                fontSize: '11px',
+                color: 'var(--danger)',
+                background: 'rgba(244, 63, 94, 0.05)',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: '1px solid rgba(244, 63, 94, 0.15)',
+                marginTop: '8px',
+                lineHeight: '1.4'
+              }}>
+                ⚠️ Adding this will exceed your {CATEGORIES[category]?.name} limit of {currencySymbol}{limit.toFixed(0)} (Remaining budget: {currencySymbol}{remainingBeforeEntry.toFixed(2)}).
+              </div>
+            )}
           </div>
 
           <div className="form-group">
