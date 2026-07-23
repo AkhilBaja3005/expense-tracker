@@ -145,7 +145,8 @@ export default function App() {
 
     const fetchReminder = async () => {
       try {
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 'AQ.Ab8RN6Kzvrqkj0dt7I38FY9ouxPrG9RLkZ2uUwq8TfS-G8yLhA';
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        if (!apiKey) throw new Error("API Key missing");
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -452,7 +453,8 @@ export default function App() {
     });
 
     try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 'AQ.Ab8RN6Kzvrqkj0dt7I38FY9ouxPrG9RLkZ2uUwq8TfS-G8yLhA';
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) throw new Error("API Key missing");
 
       // 1. Attempt with gemini-2.5-flash
       try {
