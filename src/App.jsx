@@ -280,7 +280,7 @@ export default function App() {
         .then(async (reg) => {
           console.log('SW registered successfully:', reg);
           
-          if (user?.id) {
+          if (user?.id && reg.pushManager) {
             try {
               // VAPID Public Key
               const pubKey = 'BNT0tNWiED6i5vaUz_yFbNY4tEJIP9Rs1G4HeVcrT7wK9GcDNc2lUR7oBJYB91x86jfpk_JTIx8pYlB4bx7qn9w';
@@ -338,10 +338,13 @@ export default function App() {
         callback: handleCredentialResponse
       });
 
-      window.google.accounts.id.renderButton(
-        document.getElementById("google-signin-btn"),
-        { theme: "outline", size: "large", width: "100%", alignment: "center" }
-      );
+      const btnElement = document.getElementById("google-signin-btn");
+      if (btnElement) {
+        window.google.accounts.id.renderButton(
+          btnElement,
+          { theme: "outline", size: "large", width: "100%", alignment: "center" }
+        );
+      }
     }
   }, [user]);
 
