@@ -406,6 +406,21 @@ body {
   flex-direction: column;
   gap: 10px;
   width: 100%;
+  max-height: 400px; /* Constrain height for scrolling */
+  overflow-y: auto;  /* Enable vertical scroll */
+  padding-right: 4px; /* Prevent content clipping under scrollbar */
+}
+
+/* Custom scrollbar for transaction list */
+.expense-list::-webkit-scrollbar {
+  width: 5px;
+}
+.expense-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.expense-list::-webkit-scrollbar-thumb {
+  background: var(--glass-border);
+  border-radius: 3px;
 }
 
 .section-title {
