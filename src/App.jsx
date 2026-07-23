@@ -86,12 +86,39 @@ export default function App() {
   // Daily tracker reminder
   const [dailyReminder, setDailyReminder] = useState('');
 
+  // Reconnection Sync Banner
+  const [showSyncSuccess, setShowSyncSuccess] = useState(false);
+
   // Check if user has logged any expenses today
   const hasLoggedToday = expenses.some((exp) => {
     const expDateStr = new Date(exp.date).toISOString().split('T')[0];
     const todayStr = new Date().toISOString().split('T')[0];
     return expDateStr === todayStr;
   });
+
+  // Track network status & auto-flush sync queue
+  useEffect(() => {
+    const goOnline = async () => {
+      setIsOffline(false);
+      setIsSyncing(true);
+      await syncOfflineQueue();
+      if (user?.id) {
+        await syncFromCloud(user.id, () => {
+          setExpenses(getExpenses(user.id));
+        });
+      }
+      setIsSyncing(false);
+      setShowSyncSuccess(true);
+      setTimeout(() => setShowSyncSuccess(false), 3000);
+    };
+    const goOffline = () => setIsOffline(true);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, [user]);
 
   // Fetch or retrieve daily reminder message
   useEffect(() => {
@@ -151,21 +178,7 @@ export default function App() {
     return 'Notification' in window ? Notification.permission : 'unsupported';
   });
 
-  // Track network status & auto-flush sync queue
-  useEffect(() => {
-    const goOnline = async () => {
-      setIsOffline(false);
-      await syncOfflineQueue();
-      if (user?.id) triggerCloudSync(user.id);
-    };
-    const goOffline = () => setIsOffline(true);
-    window.addEventListener('online', goOnline);
-    window.addEventListener('offline', goOffline);
-    return () => {
-      window.removeEventListener('online', goOnline);
-      window.removeEventListener('offline', goOffline);
-    };
-  }, [user]);
+
 
   // Sync data from cloud helper
   const triggerCloudSync = async (userId) => {
@@ -293,6 +306,80 @@ export default function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleImportCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const text = evt.target.result;
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length <= 1) {
+        alert('Invalid CSV file or empty list');
+        return;
+      }
+
+      // Parse headers
+      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
+      const descIdx = headers.indexOf('description');
+      const amtIdx = headers.indexOf('amount');
+      const catIdx = headers.indexOf('category');
+      const dateIdx = headers.indexOf('date');
+      const notesIdx = headers.indexOf('notes');
+
+      if (descIdx === -1 || amtIdx === -1) {
+        alert('CSV must contain at least "Description" and "Amount" headers.');
+        return;
+      }
+
+      const importedExpenses = [];
+      const userId = user?.id || null;
+
+      for (let i = 1; i < lines.length; i++) {
+        const row = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+        const cleanRow = row.map(cell => cell.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
+
+        if (cleanRow.length < Math.max(descIdx, amtIdx) + 1) continue;
+
+        const desc = cleanRow[descIdx] || 'Imported Expense';
+        const amt = parseFloat(cleanRow[amtIdx]) || 0;
+        
+        let cat = 'Others';
+        if (catIdx !== -1 && cleanRow[catIdx]) {
+          const rawCat = cleanRow[catIdx];
+          const matchedKey = Object.keys(CATEGORIES).find(
+            k => k.toLowerCase() === rawCat.toLowerCase() || CATEGORIES[k].name.toLowerCase() === rawCat.toLowerCase()
+          );
+          if (matchedKey) cat = matchedKey;
+        }
+
+        const date = dateIdx !== -1 && cleanRow[dateIdx] ? cleanRow[dateIdx] : new Date().toISOString().split('T')[0];
+        const notes = notesIdx !== -1 ? cleanRow[notesIdx] : '';
+
+        importedExpenses.push({
+          description: desc,
+          amount: amt,
+          category: cat,
+          date: date,
+          notes: notes,
+          isSubscription: false
+        });
+      }
+
+      if (importedExpenses.length > 0) {
+        for (const exp of importedExpenses) {
+          await addExpense(exp, userId);
+        }
+        setExpenses(getExpenses(userId));
+        alert(`Successfully imported ${importedExpenses.length} expenses!`);
+        triggerCloudSync(userId);
+      } else {
+        alert('No valid expenses found in CSV.');
+      }
+    };
+    reader.readAsText(file);
   };
 
   const userId = user?.id || null;
@@ -599,6 +686,23 @@ export default function App() {
   return (
     <div className="app-container">
       {isOffline && <div className="offline-banner">Working Offline</div>}
+      
+      {showSyncSuccess && (
+        <div style={{
+          background: 'var(--success)',
+          color: 'white',
+          fontSize: '12px',
+          fontWeight: '600',
+          textAlign: 'center',
+          padding: '6px',
+          position: 'sticky',
+          top: 0,
+          zIndex: 100,
+          animation: 'fadeIn 0.3s ease-out'
+        }}>
+          🟢 Back Online! Offline changes synchronized successfully.
+        </div>
+      )}
 
       <header className="header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -945,12 +1049,37 @@ export default function App() {
                   padding: '10px',
                   borderRadius: '8px',
                   cursor: 'pointer',
-                  fontSize: '12px',
+                  fontSize: '11px',
                   fontWeight: '600'
                 }}
               >
-                📥 Export CSV Backup
+                📥 Export CSV
               </button>
+              <label 
+                style={{
+                  flex: 1,
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--glass-border)',
+                  color: 'var(--text-primary)',
+                  padding: '10px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  textAlign: 'center',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                📤 Import CSV
+                <input 
+                  type="file" 
+                  accept=".csv" 
+                  onChange={handleImportCSV} 
+                  style={{ display: 'none' }} 
+                />
+              </label>
             </div>
           </div>
 
@@ -1075,6 +1204,10 @@ export default function App() {
                 <div className="expense-list">
                   {filteredExpenses.map((exp) => {
                     const cat = CATEGORIES[exp.category] || CATEGORIES.Others;
+                    const catLimit = categoryBudgets[exp.category];
+                    const catSpent = getCategorySpending(exp.category);
+                    const isOverCategoryBudget = catLimit && catLimit > 0 && catSpent > catLimit;
+
                     return (
                       <div 
                         key={exp.id} 
@@ -1089,7 +1222,25 @@ export default function App() {
                             {cat.icon}
                           </div>
                           <div className="expense-info">
-                            <span className="expense-desc">{exp.description}</span>
+                            <span className="expense-desc" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              {exp.description}
+                              {isOverCategoryBudget && (
+                                <span 
+                                  style={{
+                                    fontSize: '9px',
+                                    color: 'var(--danger)',
+                                    background: 'rgba(244, 63, 94, 0.08)',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    fontWeight: '700',
+                                    letterSpacing: '0.2px'
+                                  }}
+                                  title="Category Budget Exceeded"
+                                >
+                                  Limit Exceeded
+                                </span>
+                              )}
+                            </span>
                             <span className="expense-date">
                               {new Date(exp.date).toLocaleDateString(undefined, { dateStyle: 'medium' })}
                             </span>
