@@ -117,6 +117,10 @@ export default function App() {
   const [editingExpense, setEditingExpense] = useState(null);
   const [activeBudgetModal, setActiveBudgetModal] = useState(false);
   const [showQueueInspector, setShowQueueInspector] = useState(false);
+
+  // PWA Install Banner states
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
   
   // Sorters, date filters, and reminders state
   const [searchQuery, setSearchQuery] = useState('');
@@ -383,6 +387,29 @@ export default function App() {
       console.error('Push notification toggle failed:', err);
       alert('Failed to modify push reminders: ' + err.message);
     }
+  };
+
+  // Listen for native beforeinstallprompt PWA event
+  useEffect(() => {
+    const handleBeforeInstall = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+      if (!isStandalone) {
+        setShowInstallBanner(true);
+      }
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+  }, []);
+
+  const handleInstallPWA = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`User PWA install prompt choice: ${outcome}`);
+    setDeferredPrompt(null);
+    setShowInstallBanner(false);
   };
 
   // Setup Google Login & version checks
@@ -1069,6 +1096,61 @@ export default function App() {
         }}>
           <span style={{ fontSize: '15px' }}>🔔</span>
           <span style={{ fontWeight: '500', opacity: 0.95 }}>{dailyReminder}</span>
+        </div>
+      )}
+
+      {/* PWA Custom Install Banner */}
+      {showInstallBanner && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(8, 145, 178, 0.05))',
+          border: '1px solid rgba(6, 182, 212, 0.3)',
+          color: 'var(--text-primary)',
+          padding: '12px 18px',
+          margin: '16px 20px 0 20px',
+          borderRadius: '8px',
+          fontSize: '13px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '12px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '18px' }}>📲</span>
+            <span style={{ fontWeight: '500' }}>Install Expense Tracker for offline sync & real-time alerts!</span>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={handleInstallPWA}
+              style={{
+                background: 'var(--accent-primary)',
+                color: 'white',
+                border: 'none',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                fontWeight: '600',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
+            >
+              Install
+            </button>
+            <button
+              onClick={() => setShowInstallBanner(false)}
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--glass-border)',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                fontWeight: '600',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
         </div>
       )}
 
