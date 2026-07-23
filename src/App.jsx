@@ -555,9 +555,15 @@ export default function App() {
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <h1 style={{ fontSize: '16px', lineHeight: '1.2' }}>Expense Tracker</h1>
             {isSyncing ? (
-              <span style={{ fontSize: '9px', color: 'var(--accent-primary)' }}>syncing cloud...</span>
+              <span className="sync-skeleton" style={{ fontSize: '9px', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--accent-primary)', display: 'inline-block' }}></span>
+                syncing cloud...
+              </span>
             ) : (
-              <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>cloud synced</span>
+              <span style={{ fontSize: '9px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--success)', display: 'inline-block' }}></span>
+                cloud synced
+              </span>
             )}
           </div>
         </div>

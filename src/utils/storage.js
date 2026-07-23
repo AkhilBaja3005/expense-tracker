@@ -85,48 +85,81 @@ function addToQueue(action, type, payload, userId) {
   saveSyncQueue(queue);
 }
 
-// SYNC PENDING OFFLINE ACTIONS TO SUPABASE
+// SYNC PENDING OFFLINE ACTIONS TO SUPABASE IN BATCHES
 export async function syncOfflineQueue() {
   const queue = getSyncQueue();
   if (queue.length === 0) return;
 
-  const remaining = [];
+  const expensesToUpsert = [];
+  const expenseIdsToDelete = [];
+  const settingsToUpsert = [];
+  const failedTasks = [];
+
   for (const task of queue) {
     const { action, type, payload, userId } = task;
-    try {
-      if (type === 'expense') {
-        if (action === 'upsert') {
-          await supabase.from('expenses').upsert({
-            id: payload.id,
-            user_id: userId,
-            description: payload.description,
-            amount: payload.amount,
-            category: payload.category,
-            date: payload.date,
-            notes: payload.notes,
-            date_added: payload.dateAdded,
-            date_modified: payload.dateModified,
-            is_subscription: !!payload.isSubscription
-          });
-        } else if (action === 'delete') {
-          await supabase.from('expenses').delete().eq('id', payload.id);
-        }
-      } else if (type === 'settings') {
-        await supabase.from('user_settings').upsert({
+    if (type === 'expense') {
+      if (action === 'upsert') {
+        expensesToUpsert.push({
+          id: payload.id,
           user_id: userId,
-          budget: payload.budget,
-          currency: payload.currency,
-          category_budgets: payload.categoryBudgets,
-          updated_at: new Date().toISOString()
+          description: payload.description,
+          amount: payload.amount,
+          category: payload.category,
+          date: payload.date,
+          notes: payload.notes,
+          date_added: payload.dateAdded,
+          date_modified: payload.dateModified,
+          is_subscription: !!payload.isSubscription
         });
+      } else if (action === 'delete') {
+        expenseIdsToDelete.push(payload.id);
       }
-    } catch (err) {
-      console.error('Could not sync item, keeping in queue:', err);
-      remaining.push(task);
+    } else if (type === 'settings') {
+      settingsToUpsert.push({
+        user_id: userId,
+        budget: payload.budget,
+        currency: payload.currency,
+        category_budgets: payload.categoryBudgets,
+        updated_at: new Date().toISOString()
+      });
     }
   }
 
-  saveSyncQueue(remaining);
+  // 1. Batch Upsert Expenses
+  if (expensesToUpsert.length > 0) {
+    try {
+      const { error } = await supabase.from('expenses').upsert(expensesToUpsert);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Failed to batch upsert expenses, keeping in queue:', err);
+      // Find matching items from original queue and mark as failed
+      queue.filter(t => t.type === 'expense' && t.action === 'upsert').forEach(t => failedTasks.push(t));
+    }
+  }
+
+  // 2. Batch Delete Expenses
+  if (expenseIdsToDelete.length > 0) {
+    try {
+      const { error } = await supabase.from('expenses').delete().in('id', expenseIdsToDelete);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Failed to batch delete expenses, keeping in queue:', err);
+      queue.filter(t => t.type === 'expense' && t.action === 'delete').forEach(t => failedTasks.push(t));
+    }
+  }
+
+  // 3. Sync Settings
+  for (const set of settingsToUpsert) {
+    try {
+      const { error } = await supabase.from('user_settings').upsert(set);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Failed to sync settings, keeping in queue:', err);
+      queue.filter(t => t.type === 'settings').forEach(t => failedTasks.push(t));
+    }
+  }
+
+  saveSyncQueue(failedTasks);
 }
 
 // CLOUD SYNC OPERATIONS (SUPABASE)
